@@ -260,7 +260,7 @@ async function supaLoadGymData(gymId) {
   ]);
   const mapMember = r => { const status = checkExpiryStatus(r.expiry_date, r.status); return { name:r.name, init:r.initials, id:r.id, phone:r.phone, email:r.email, plan:r.plan, start:r.start_date, expiry:r.expiry_date, status, trainer:r.trainer, visits:r.visits, dob:r.dob }; };
   const mapAttendance = r => ({ id:r.id, memberId:r.member_id, memberName:r.member_name, init:r.initials, checkIn:r.check_in, date:r.date, trainer:r.trainer, method:r.method, status:r.status });
-  const mapStaff = r => ({ name:r.name, init:r.initials, id:r.id, role:r.role, branch:r.branch, members:r.members_count, present:r.present, salary:r.salary, phone:r.phone, email:r.email, joined:r.joined, qr:r.qr });
+  const mapStaff = r => ({ name:r.name, init:r.initials, id:r.id, role:r.role, branch:r.branch, members:r.members_count, present:r.present, salary:r.salary, phone:r.phone, email:r.email, joined:r.joined, qr:r.qr, shift:r.shift||'Full Day' });
   const mapTrainer = r => ({ name:r.name, init:r.initials, id:r.id, specialization:r.specialization, experience:r.experience, members:r.members||[], sessions:r.sessions, rating:r.rating, commission:r.commission, revenue:r.revenue, certifications:r.certifications, qr:r.qr });
   const mapPlan = r => ({ name:r.name, days:r.days, price:r.price, pt:r.pt });
   const mapProfile = r => r ? { gymName:r.gym_name, tagline:r.tagline, address:r.address, city:r.city, phone:r.phone, gstin:r.gstin, openTime:r.open_time, closeTime:r.close_time } : {};
@@ -2283,20 +2283,47 @@ function QRBadge({ id }) {
 }
 
 function PageStaff({ toast }) {
-  const { staff, setStaff, gymUser } = useGym();
+  const { staff, setStaff, members, gymUser } = useGym();
+  const [tab, setTab] = useState('directory');
   const [showAdd, setShowAdd]   = useState(false);
   const [showView, setShowView] = useState(null);
   const [showEdit, setShowEdit] = useState(null);
-  const blank = {name:'',phone:'',email:'',role:'Trainer',branch:'Koramangala',salary:'',joined:new Date().toISOString().slice(0,10)};
+  const blank = {name:'',phone:'',email:'',role:'Trainer',branch:'Koramangala',salary:'',joined:new Date().toISOString().slice(0,10),shift:'Full Day'};
   const [form, setForm] = useState(blank);
   const set = (k,v) => setForm(p=>({...p,[k]:v}));
 
-  const totalSalary = staff.reduce((a,s)=>a+(parseInt(s.salary)||0),0);
+  const todayStr = new Date().toISOString().slice(0,10);
+  const [staffAtt, setStaffAtt] = useState([]);
+  const [attLoaded, setAttLoaded] = useState(false);
+  const [attMonth, setAttMonth] = useState(todayStr.slice(0,7));
+
+  const [salaryRecords, setSalaryRecords] = useState([]);
+  const [salMonth, setSalMonth] = useState(todayStr.slice(0,7));
+  const [showPayModal, setShowPayModal] = useState(null);
+  const [payMode, setPayMode] = useState('UPI');
+
+  const totalSalary = staff.reduce((a,st)=>a+(parseInt(st.salary)||0),0);
+
+  useEffect(()=>{
+    if(!gymUser) return;
+    Promise.all([
+      supabase.from('staff_attendance').select('*').eq('gym_id',gymUser.gym_id).order('created_at',{ascending:false}),
+      supabase.from('staff_salary').select('*').eq('gym_id',gymUser.gym_id).order('created_at',{ascending:false}),
+    ]).then(([attRes, salRes])=>{
+      if(attRes.data) setStaffAtt(attRes.data);
+      if(salRes.data) setSalaryRecords(salRes.data);
+      setAttLoaded(true);
+    }).catch(()=>setAttLoaded(true));
+  },[gymUser]);
 
   const genStaffId = () => {
     const prefix = gymUser.gym_id.replace('GYM-','').replace(/-/g,'').slice(0,3).toUpperCase();
     return `ST-${prefix}-${String(staff.length+1).padStart(3,'0')}`;
   };
+
+  const ROLES = ['Head Trainer','PT Trainer','Trainer','Receptionist','Manager','Cleaning Staff','Security'];
+  const SHIFTS = ['Morning (6AM-12PM)','Evening (12PM-9PM)','Full Day'];
+  const ATT_STATUSES = ['Present','Absent','Half Day','Leave'];
 
   const saveStaff = () => {
     if(!form.name.trim()){toast('Name is required');return;}
@@ -2308,77 +2335,292 @@ function PageStaff({ toast }) {
     setStaff(p=>[...p,newSt]);
     setShowAdd(false); setForm(blank);
     toast(`${form.name} added -- ID: ${id}, QR assigned ✓`);
-    // Persist to Supabase
     supabase.from('staff').insert({
       id, gym_id: gymUser.gym_id, name: form.name.trim(), initials: init, role: form.role,
       branch: form.branch||'', members_count: 0, present: true, salary: salaryNum,
       phone: form.phone||'', email: form.email||'', joined: form.joined||'', qr: `QR-${id}`,
+      shift: form.shift||'Full Day',
     }).then(()=>{});
   };
 
   const saveEdit = () => {
     const salaryNum = parseInt(form.salary.toString().replace(/[^0-9]/g,''));
-    setStaff(p=>p.map(s=>s.id===showEdit.id?{...showEdit,...form,salary:salaryNum,init:showEdit.init}:s));
+    setStaff(p=>p.map(st=>st.id===showEdit.id?{...showEdit,...form,salary:salaryNum,init:showEdit.init}:st));
     setShowEdit(null); setForm(blank);
     toast('Staff record updated ✓');
-    // Persist update to Supabase
     supabase.from('staff').update({
       name: form.name, role: form.role, branch: form.branch, salary: salaryNum,
       phone: form.phone||'', email: form.email||'', joined: form.joined||'',
+      shift: form.shift||'Full Day',
     }).eq('id', showEdit.id).then(()=>{});
   };
 
-  const openEdit = (st) => { setShowEdit(st); setForm({name:st.name,phone:st.phone||'',email:st.email||'',role:st.role,branch:st.branch,salary:String(st.salary),joined:st.joined||''}); };
+  const openEdit = (st) => { setShowEdit(st); setForm({name:st.name,phone:st.phone||'',email:st.email||'',role:st.role,branch:st.branch,salary:String(st.salary),joined:st.joined||'',shift:st.shift||'Full Day'}); };
 
-  const ROLES = ['Head Trainer','PT Trainer','Trainer','Receptionist','Manager','Cleaning Staff','Security'];
+  const getTodayAtt = (staffId) => staffAtt.find(a=>a.staff_id===staffId&&a.date===todayStr);
+
+  const markAttendance = async (staffId, status) => {
+    const stf = staff.find(st=>st.id===staffId);
+    const existing = getTodayAtt(staffId);
+    if(existing) {
+      setStaffAtt(prev=>prev.map(a=>a.id===existing.id?{...a,status}:a));
+      await supabase.from('staff_attendance').update({status}).eq('id',existing.id);
+    } else {
+      const timeStr = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
+      const rec = { gym_id:gymUser.gym_id, staff_id:staffId, staff_name:stf?.name||'', date:todayStr, status, check_in:status==='Present'||status==='Half Day'?timeStr:'', shift:stf?.shift||'Full Day' };
+      const {data} = await supabase.from('staff_attendance').insert(rec).select().single();
+      if(data) setStaffAtt(prev=>[data,...prev]);
+    }
+    setStaff(p=>p.map(st=>st.id===staffId?{...st,present:status==='Present'||status==='Half Day'}:st));
+    supabase.from('staff').update({present:status==='Present'||status==='Half Day'}).eq('id',staffId).then(()=>{});
+    toast(`${stf?.name} marked ${status} ✓`);
+  };
+
+  const getMonthSalary = (staffId, month) => salaryRecords.find(r=>r.staff_id===staffId&&r.month===month);
+
+  const markSalaryPaid = async (staffId) => {
+    const stf = staff.find(st=>st.id===staffId);
+    if(!stf) return;
+    const existing = getMonthSalary(staffId, salMonth);
+    if(existing) {
+      setSalaryRecords(prev=>prev.map(r=>r.id===existing.id?{...r,status:'Paid',paid_date:todayStr,mode:payMode}:r));
+      await supabase.from('staff_salary').update({status:'Paid',paid_date:todayStr,mode:payMode}).eq('id',existing.id);
+    } else {
+      const rec = { gym_id:gymUser.gym_id, staff_id:staffId, staff_name:stf.name, month:salMonth, amount:parseInt(stf.salary)||0, status:'Paid', paid_date:todayStr, mode:payMode };
+      const {data} = await supabase.from('staff_salary').insert(rec).select().single();
+      if(data) setSalaryRecords(prev=>[data,...prev]);
+    }
+    toast(`₹${(parseInt(stf.salary)||0).toLocaleString('en-IN')} paid to ${stf.name} ✓`);
+    setShowPayModal(null);
+  };
+
+  const getAttendanceRate = (staffId) => {
+    const monthRecs = staffAtt.filter(a=>a.staff_id===staffId&&a.date.startsWith(attMonth));
+    if(!monthRecs.length) return null;
+    const present = monthRecs.filter(a=>a.status==='Present').length;
+    const halfDay = monthRecs.filter(a=>a.status==='Half Day').length;
+    return Math.round(((present+halfDay*0.5)/monthRecs.length)*100);
+  };
+
+  const getMembersHandled = (staffName) => members.filter(m=>m.trainer===staffName&&m.status==='Active').length;
+
+  const presentToday = staff.filter(st=>{ const a=getTodayAtt(st.id); return a&&(a.status==='Present'||a.status==='Half Day'); }).length;
+  const absentToday = staff.filter(st=>{ const a=getTodayAtt(st.id); return a&&a.status==='Absent'; }).length;
+  const leaveToday = staff.filter(st=>{ const a=getTodayAtt(st.id); return a&&a.status==='Leave'; }).length;
+  const unmarkedToday = staff.filter(st=>!getTodayAtt(st.id)).length;
+
+  const monthPaid = salaryRecords.filter(r=>r.month===salMonth&&r.status==='Paid');
+  const totalPaid = monthPaid.reduce((a,r)=>a+(r.amount||0),0);
+  const totalPending = totalSalary - totalPaid;
+
+  const TABS = [{id:'directory',label:'📋 Directory'},{id:'attendance',label:'📅 Attendance'},{id:'payroll',label:'💰 Payroll'}];
 
   return (
     <div className="page-anim">
-      <div className="rg-4" style={{marginBottom:16}}>
-        <StatCard label="Total Staff" value={String(staff.length)} icon="🧑‍💼"/>
-        <StatCard label="Present Today" value={String(staff.filter(s=>s.present).length)} icon="✅"/>
-        <StatCard label="On Leave" value={String(staff.filter(s=>!s.present).length)} dim icon="🏖️"/>
-        <StatCard label="Total Salary / Month" value={`₹${totalSalary.toLocaleString('en-IN')}`} dim icon="💸"/>
+      <div style={{display:'flex',gap:4,marginBottom:16,background:G.bg,borderRadius:9,padding:3,border:`1.5px solid ${G.border}`}}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:'9px 14px',borderRadius:7,fontSize:12,fontWeight:tab===t.id?700:500,background:tab===t.id?G.accent:'transparent',color:tab===t.id?'#fff':G.text2,border:'none',cursor:'pointer',transition:'.15s'}}>{t.label}</button>
+        ))}
       </div>
 
-      <div style={s.card()}>
-        <SH title="Staff Directory" sub={`${gymUser.gymName} · All positions`}
-          right={<Btn variant="primary" size="sm" onClick={()=>{setForm(blank);setShowAdd(true);}}>+ Add Staff</Btn>}/>
-        <div style={{overflowX:'auto'}}>
-          <div class="tbl-wrap"><table style={{width:'100%',borderCollapse:'collapse'}}>
-            <Th cols={['Staff','Staff ID','Position','Branch','Phone','Status','Salary / Month','QR','']}/>
-            <tbody>
-              {staff.map((st,i)=>(
-                <tr key={st.id} className="row-hover" style={{borderBottom:`1px solid ${G.border}`,transition:'.12s'}}>
-                  <td style={{padding:'11px 13px'}}><div style={s.flex(9)}><Mav init={st.init}/><div><div style={{fontSize:13,fontWeight:600,color:G.navy}}>{st.name}</div><div style={{fontSize:10,color:G.text3}}>{st.email||'--'}</div></div></div></td>
-                  <td style={{padding:'11px 13px',...s.mono,fontSize:11,color:G.text3}}>{st.id}</td>
-                  <td style={{padding:'11px 13px'}}><Badge bright>{st.role}</Badge></td>
-                  <td style={{padding:'11px 13px',fontSize:12,color:G.text2}}>{st.branch}</td>
-                  <td style={{padding:'11px 13px',fontSize:12,color:G.text2}}>{st.phone||'--'}</td>
-                  <td style={{padding:'11px 13px'}}>{st.present?<Badge bright>● Present</Badge>:<Badge danger>○ Absent</Badge>}</td>
-                  <td style={{padding:'11px 13px',...s.mono,fontSize:12,fontWeight:700,color:G.accent}}>₹{(parseInt(st.salary)||0).toLocaleString('en-IN')}</td>
-                  <td style={{padding:'11px 13px'}}><span style={{...s.mono,fontSize:10,color:G.text3}}>{st.qr||`QR-${st.id}`}</span></td>
-                  <td style={{padding:'11px 13px'}}>
-                    <div style={s.flex(5)}>
-                      <Btn variant="ghost" size="xs" onClick={()=>setShowView(st)}>View</Btn>
-                      <Btn variant="ghost" size="xs" onClick={()=>openEdit(st)}>Edit</Btn>
-                      <Btn variant="danger" size="xs" onClick={()=>{setStaff(p=>p.filter((_,j)=>j!==i));toast(`${st.name} removed`);}}>✕</Btn>
+      {tab==='directory' && (<>
+        <div className="rg-4" style={{marginBottom:16}}>
+          <StatCard label="Total Staff" value={String(staff.length)} icon="🧑‍💼"/>
+          <StatCard label="Present Today" value={String(presentToday)} icon="✅"/>
+          <StatCard label="On Leave" value={String(leaveToday)} dim icon="🏖️"/>
+          <StatCard label="Total Salary / Month" value={`₹${totalSalary.toLocaleString('en-IN')}`} dim icon="💸"/>
+        </div>
+
+        <div style={{...s.card(),marginBottom:16}}>
+          <SH title="Today's Shifts" sub={new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'short'})}/>
+          <div className="rg-3" style={{gap:10}}>
+            {['Morning (6AM-12PM)','Evening (12PM-9PM)','Full Day'].map(shift=>{
+              const shiftStaff = staff.filter(st=>(st.shift||'Full Day')===shift);
+              return shiftStaff.length>0 && (
+                <div key={shift} style={{...s.inset(12),background:G.bg3,border:`1px solid ${G.border2}`}}>
+                  <div style={{fontSize:10,fontWeight:700,color:G.text3,textTransform:'uppercase',letterSpacing:'.5px',marginBottom:6}}>
+                    {shift==='Morning (6AM-12PM)'?'🌅':shift==='Evening (12PM-9PM)'?'🌆':'☀️'} {shift}
+                  </div>
+                  <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                    {shiftStaff.map(st=>(
+                      <div key={st.id} style={{...s.flex(6),background:G.bg,border:`1px solid ${G.border}`,borderRadius:7,padding:'4px 10px'}}>
+                        <Mav init={st.init} size={22}/>
+                        <span style={{fontSize:11,fontWeight:600,color:G.navy}}>{st.name}</span>
+                        <Badge bright style={{fontSize:9}}>{st.role}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={s.card()}>
+          <SH title="Staff Directory" sub={`${gymUser.gymName} · All positions`}
+            right={<Btn variant="primary" size="sm" onClick={()=>{setForm(blank);setShowAdd(true);}}>+ Add Staff</Btn>}/>
+          <div style={{overflowX:'auto'}}>
+            <div className="tbl-wrap"><table style={{width:'100%',borderCollapse:'collapse'}}>
+              <Th cols={['Staff','Staff ID','Position','Shift','Branch','Status','Salary','Members','']}/>
+              <tbody>
+                {staff.map((st,i)=>(
+                  <tr key={st.id} className="row-hover" style={{borderBottom:`1px solid ${G.border}`,transition:'.12s'}}>
+                    <td style={{padding:'11px 13px'}}><div style={s.flex(9)}><Mav init={st.init}/><div><div style={{fontSize:13,fontWeight:600,color:G.navy}}>{st.name}</div><div style={{fontSize:10,color:G.text3}}>{st.email||'--'}</div></div></div></td>
+                    <td style={{padding:'11px 13px',...s.mono,fontSize:11,color:G.text3}}>{st.id}</td>
+                    <td style={{padding:'11px 13px'}}><Badge bright>{st.role}</Badge></td>
+                    <td style={{padding:'11px 13px'}}><Badge style={{fontSize:9}}>{(st.shift||'Full Day').replace(/ \(.*\)/,'')}</Badge></td>
+                    <td style={{padding:'11px 13px',fontSize:12,color:G.text2}}>{st.branch}</td>
+                    <td style={{padding:'11px 13px'}}>{st.present?<Badge bright>● Present</Badge>:<Badge danger>○ Absent</Badge>}</td>
+                    <td style={{padding:'11px 13px',...s.mono,fontSize:12,fontWeight:700,color:G.accent}}>₹{(parseInt(st.salary)||0).toLocaleString('en-IN')}</td>
+                    <td style={{padding:'11px 13px',...s.mono,fontSize:12,fontWeight:600,color:G.accent}}>{getMembersHandled(st.name)}</td>
+                    <td style={{padding:'11px 13px'}}>
+                      <div style={s.flex(5)}>
+                        <Btn variant="ghost" size="xs" onClick={()=>setShowView(st)}>View</Btn>
+                        <Btn variant="ghost" size="xs" onClick={()=>openEdit(st)}>Edit</Btn>
+                        <Btn variant="danger" size="xs" onClick={()=>{setStaff(p=>p.filter((_,j)=>j!==i));supabase.from('staff').delete().eq('id',st.id).then(()=>{});toast(`${st.name} removed`);}}>✕</Btn>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+          </div>
+          <div style={{...s.inset(12),marginTop:14,background:G.bg3,border:`1px solid ${G.border2}`,...s.flex(0),justifyContent:'space-between'}}>
+            <div style={{fontSize:13,fontWeight:600,color:G.navy}}>Total Monthly Payroll</div>
+            <div style={{...s.mono,fontSize:16,fontWeight:800,color:G.accent}}>₹{totalSalary.toLocaleString('en-IN')}</div>
+          </div>
+        </div>
+      </>)}
+
+      {tab==='attendance' && (<>
+        <div className="rg-4" style={{marginBottom:16}}>
+          <StatCard label="Present Today" value={String(presentToday)} icon="✅"/>
+          <StatCard label="Absent Today" value={String(absentToday)} dim icon="❌"/>
+          <StatCard label="On Leave" value={String(leaveToday)} dim icon="🏖️"/>
+          <StatCard label="Unmarked" value={String(unmarkedToday)} dim={unmarkedToday===0} icon={unmarkedToday>0?"⚠️":"✓"}/>
+        </div>
+
+        <div style={{...s.card(),marginBottom:16}}>
+          <SH title="Mark Today's Attendance" sub={new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}/>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {staff.map(st=>{
+              const todayRec = getTodayAtt(st.id);
+              const currentStatus = todayRec?.status || null;
+              return (
+                <div key={st.id} style={{...s.flex(0),justifyContent:'space-between',background:G.bg3,border:`1px solid ${G.border2}`,borderRadius:9,padding:'10px 14px',flexWrap:'wrap',gap:8}}>
+                  <div style={s.flex(10)}>
+                    <Mav init={st.init} size={32}/>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600,color:G.navy}}>{st.name}</div>
+                      <div style={{fontSize:10,color:G.text3}}>{st.role} · {(st.shift||'Full Day').replace(/ \(.*\)/,'')}</div>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-</table></div>
+                  </div>
+                  <div style={{display:'flex',gap:5}}>
+                    {ATT_STATUSES.map(status=>{
+                      const colors = {Present:{bg:'#dcfce7',c:'#16a34a',bc:'#bbf7d0'},Absent:{bg:'#fef2f2',c:'#dc2626',bc:'#fecaca'},'Half Day':{bg:'#fef9c3',c:'#ca8a04',bc:'#fde68a'},Leave:{bg:'#ede9fe',c:'#7c3aed',bc:'#ddd6fe'}};
+                      const clr = colors[status];
+                      const active = currentStatus===status;
+                      return (
+                        <button key={status} onClick={()=>markAttendance(st.id,status)} style={{padding:'5px 10px',borderRadius:6,fontSize:10,fontWeight:active?700:500,background:active?clr.bg:'transparent',color:active?clr.c:G.text3,border:`1.5px solid ${active?clr.bc:G.border}`,cursor:'pointer',transition:'.15s',whiteSpace:'nowrap'}}>{status}</button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Salary summary */}
-        <div style={{...s.inset(12),marginTop:14,background:G.bg3,border:`1px solid ${G.border2}`,...s.flex(0),justifyContent:'space-between'}}>
-          <div style={{fontSize:13,fontWeight:600,color:G.navy}}>Total Monthly Payroll</div>
-          <div style={{...s.mono,fontSize:16,fontWeight:800,color:G.accent}}>₹{totalSalary.toLocaleString('en-IN')}</div>
+        <div style={s.card()}>
+          <SH title="Attendance History" sub={`Month: ${attMonth}`} right={
+            <input type="month" value={attMonth} onChange={e=>setAttMonth(e.target.value)} style={{...s.input,fontSize:12,padding:'5px 10px',width:160}}/>
+          }/>
+          {staff.map(st=>{
+            const recs = staffAtt.filter(a=>a.staff_id===st.id&&a.date.startsWith(attMonth));
+            const presentDays = recs.filter(a=>a.status==='Present').length;
+            const halfDays = recs.filter(a=>a.status==='Half Day').length;
+            const absentDays = recs.filter(a=>a.status==='Absent').length;
+            const leaveDays = recs.filter(a=>a.status==='Leave').length;
+            const rate = recs.length>0 ? Math.round(((presentDays+halfDays*0.5)/recs.length)*100) : null;
+            return (
+              <div key={st.id} style={{background:G.bg3,border:`1px solid ${G.border2}`,borderRadius:9,padding:'10px 14px',marginBottom:8}}>
+                <div style={{...s.flex(0),justifyContent:'space-between',marginBottom:6}}>
+                  <div style={s.flex(8)}>
+                    <Mav init={st.init} size={28}/>
+                    <div>
+                      <span style={{fontSize:13,fontWeight:600,color:G.navy}}>{st.name}</span>
+                      <span style={{fontSize:10,color:G.text3,marginLeft:6}}>{st.role}</span>
+                    </div>
+                  </div>
+                  {rate!==null && <Badge bright style={{fontSize:10}}>{rate}% attendance</Badge>}
+                </div>
+                <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+                  <span style={{fontSize:11,color:'#16a34a',fontWeight:600}}>✅ {presentDays} Present</span>
+                  <span style={{fontSize:11,color:'#ca8a04',fontWeight:600}}>⏰ {halfDays} Half Day</span>
+                  <span style={{fontSize:11,color:'#dc2626',fontWeight:600}}>❌ {absentDays} Absent</span>
+                  <span style={{fontSize:11,color:'#7c3aed',fontWeight:600}}>🏖️ {leaveDays} Leave</span>
+                </div>
+              </div>
+            );
+          })}
+          {staffAtt.filter(a=>a.date.startsWith(attMonth)).length===0 && (
+            <div style={{textAlign:'center',padding:'28px 0',fontSize:12,color:G.text3}}>No attendance records for this month yet.</div>
+          )}
         </div>
-      </div>
+      </>)}
 
-      {/* Add Modal */}
+      {tab==='payroll' && (<>
+        <div className="rg-4" style={{marginBottom:16}}>
+          <StatCard label="Total Payroll" value={`₹${totalSalary.toLocaleString('en-IN')}`} icon="💰"/>
+          <StatCard label="Paid" value={`₹${totalPaid.toLocaleString('en-IN')}`} icon="✅"/>
+          <StatCard label="Pending" value={`₹${Math.max(0,totalPending).toLocaleString('en-IN')}`} dim={totalPending<=0} icon={totalPending>0?"⚠️":"✓"}/>
+          <StatCard label="Staff Count" value={String(staff.length)} icon="🧑‍💼"/>
+        </div>
+
+        <div style={s.card()}>
+          <SH title="Monthly Salary Status" sub={`Month: ${salMonth}`} right={
+            <input type="month" value={salMonth} onChange={e=>setSalMonth(e.target.value)} style={{...s.input,fontSize:12,padding:'5px 10px',width:160}}/>
+          }/>
+          <div style={{overflowX:'auto'}}>
+            <div className="tbl-wrap"><table style={{width:'100%',borderCollapse:'collapse'}}>
+              <Th cols={['Staff','Role','Monthly Salary','Status','Paid Date','Mode','']}/>
+              <tbody>
+                {staff.map(st=>{
+                  const rec = getMonthSalary(st.id, salMonth);
+                  const isPaid = rec?.status==='Paid';
+                  const rate = getAttendanceRate(st.id);
+                  return (
+                    <tr key={st.id} className="row-hover" style={{borderBottom:`1px solid ${G.border}`,transition:'.12s'}}>
+                      <td style={{padding:'11px 13px'}}><div style={s.flex(9)}><Mav init={st.init}/><div><div style={{fontSize:13,fontWeight:600,color:G.navy}}>{st.name}</div>{rate!==null&&<div style={{fontSize:10,color:G.text3}}>{rate}% attendance</div>}</div></div></td>
+                      <td style={{padding:'11px 13px'}}><Badge bright>{st.role}</Badge></td>
+                      <td style={{padding:'11px 13px',...s.mono,fontSize:13,fontWeight:700,color:G.accent}}>₹{(parseInt(st.salary)||0).toLocaleString('en-IN')}</td>
+                      <td style={{padding:'11px 13px'}}>{isPaid?<Badge bright>✅ Paid</Badge>:<Badge danger>⏳ Pending</Badge>}</td>
+                      <td style={{padding:'11px 13px',fontSize:12,color:G.text2}}>{rec?.paid_date||'--'}</td>
+                      <td style={{padding:'11px 13px',fontSize:12,color:G.text2}}>{rec?.mode||'--'}</td>
+                      <td style={{padding:'11px 13px'}}>
+                        {!isPaid && <Btn variant="primary" size="xs" onClick={()=>{setShowPayModal(st);setPayMode('UPI');}}>Mark Paid</Btn>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table></div>
+          </div>
+          <div style={{...s.inset(12),marginTop:14,background:G.bg3,border:`1px solid ${G.border2}`,display:'flex',justifyContent:'space-between',flexWrap:'wrap',gap:12}}>
+            <div><div style={{fontSize:10,fontWeight:700,color:G.text3,textTransform:'uppercase'}}>Total Budget</div><div style={{...s.mono,fontSize:15,fontWeight:800,color:G.navy}}>₹{totalSalary.toLocaleString('en-IN')}</div></div>
+            <div><div style={{fontSize:10,fontWeight:700,color:G.text3,textTransform:'uppercase'}}>Paid</div><div style={{...s.mono,fontSize:15,fontWeight:800,color:'#16a34a'}}>₹{totalPaid.toLocaleString('en-IN')}</div></div>
+            <div><div style={{fontSize:10,fontWeight:700,color:G.text3,textTransform:'uppercase'}}>Remaining</div><div style={{...s.mono,fontSize:15,fontWeight:800,color:totalPending>0?'#dc2626':G.accent}}>₹{Math.max(0,totalPending).toLocaleString('en-IN')}</div></div>
+            <div>
+              <div style={{fontSize:10,fontWeight:700,color:G.text3,textTransform:'uppercase',marginBottom:3}}>Progress</div>
+              <div style={{width:120,height:6,borderRadius:3,background:G.border}}>
+                <div style={{width:`${Math.min(100,totalSalary>0?Math.round((totalPaid/totalSalary)*100):0)}%`,height:'100%',borderRadius:3,background:G.accent,transition:'.3s'}}/>
+              </div>
+            </div>
+          </div>
+        </div>
+      </>)}
+
+      {/* MODALS */}
       <Modal open={showAdd} onClose={()=>{setShowAdd(false);setForm(blank);}} title="Add New Staff Member" width={580}>
         <div>
           <div className="rg-2">
@@ -2386,6 +2628,7 @@ function PageStaff({ toast }) {
             <FG label="Phone"><Fi value={form.phone} onChange={e=>set('phone',e.target.value)} placeholder="+91 98765 43210"/></FG>
             <FG label="Email"><Fi value={form.email} onChange={e=>set('email',e.target.value)} placeholder="staff@gym.com"/></FG>
             <FG label="Position / Role *"><Fs value={form.role} onChange={e=>set('role',e.target.value)}>{ROLES.map(r=><option key={r}>{r}</option>)}</Fs></FG>
+            <FG label="Shift"><Fs value={form.shift} onChange={e=>set('shift',e.target.value)}>{SHIFTS.map(sh=><option key={sh}>{sh}</option>)}</Fs></FG>
             <FG label="Branch"><Fs value={form.branch} onChange={e=>set('branch',e.target.value)}><option>Koramangala</option><option>Indiranagar</option><option>Whitefield</option></Fs></FG>
             <FG label="Monthly Salary (₹) *"><Fi value={form.salary} onChange={e=>set('salary',e.target.value)} placeholder="e.g. 30000"/></FG>
             <FG label="Joining Date"><Fi type="date" value={form.joined} onChange={e=>set('joined',e.target.value)}/></FG>
@@ -2402,7 +2645,6 @@ function PageStaff({ toast }) {
         </div>
       </Modal>
 
-      {/* Edit Modal */}
       <Modal open={!!showEdit} onClose={()=>{setShowEdit(null);setForm(blank);}} title={`Edit -- ${showEdit?.name||''}`} width={580}>
         <div>
           <div className="rg-2">
@@ -2410,6 +2652,7 @@ function PageStaff({ toast }) {
             <FG label="Phone"><Fi value={form.phone} onChange={e=>set('phone',e.target.value)} placeholder="+91 98765 43210"/></FG>
             <FG label="Email"><Fi value={form.email} onChange={e=>set('email',e.target.value)} placeholder="staff@gym.com"/></FG>
             <FG label="Position / Role *"><Fs value={form.role} onChange={e=>set('role',e.target.value)}>{ROLES.map(r=><option key={r}>{r}</option>)}</Fs></FG>
+            <FG label="Shift"><Fs value={form.shift} onChange={e=>set('shift',e.target.value)}>{SHIFTS.map(sh=><option key={sh}>{sh}</option>)}</Fs></FG>
             <FG label="Branch"><Fs value={form.branch} onChange={e=>set('branch',e.target.value)}><option>Koramangala</option><option>Indiranagar</option><option>Whitefield</option></Fs></FG>
             <FG label="Monthly Salary (₹) *"><Fi value={form.salary} onChange={e=>set('salary',e.target.value)} placeholder="e.g. 30000"/></FG>
             <FG label="Joining Date"><Fi type="date" value={form.joined} onChange={e=>set('joined',e.target.value)}/></FG>
@@ -2418,7 +2661,6 @@ function PageStaff({ toast }) {
         </div>
       </Modal>
 
-      {/* View Modal */}
       <Modal open={!!showView} onClose={()=>setShowView(null)} title={`Staff Profile -- ${showView?.name}`} width={520}>
         {showView && (
           <div>
@@ -2426,12 +2668,12 @@ function PageStaff({ toast }) {
               <Mav init={showView.init} size={56}/>
               <div>
                 <div style={{fontSize:18,fontWeight:800,color:G.navy}}>{showView.name}</div>
-                <div style={s.flex(8)}><Badge bright>{showView.role}</Badge><Badge>{showView.branch}</Badge></div>
+                <div style={s.flex(8)}><Badge bright>{showView.role}</Badge><Badge>{showView.branch}</Badge><Badge>{(showView.shift||'Full Day').replace(/ \(.*\)/,'')}</Badge></div>
               </div>
               <div style={{marginLeft:'auto'}}><QRBadge id={showView.qr||`QR-${showView.id}`}/></div>
             </div>
             <div className="rg-2" style={{gap:10}}>
-              {[['Staff ID',showView.id,true],['QR Code',showView.qr||`QR-${showView.id}`,true],['Phone',showView.phone||'--',false],['Email',showView.email||'--',false],['Branch',showView.branch,false],['Joined',showView.joined||'--',false],['Monthly Salary',`₹${(parseInt(showView.salary)||0).toLocaleString('en-IN')}`,false],['Status',showView.present?'Present':'Absent',false]].map(([k,v,m])=>(
+              {[['Staff ID',showView.id,true],['QR Code',showView.qr||`QR-${showView.id}`,true],['Phone',showView.phone||'--'],['Email',showView.email||'--'],['Branch',showView.branch],['Shift',showView.shift||'Full Day'],['Joined',showView.joined||'--'],['Monthly Salary',`₹${(parseInt(showView.salary)||0).toLocaleString('en-IN')}`],['Members Handled',String(getMembersHandled(showView.name))],['Status',showView.present?'Present':'Absent']].map(([k,v,m])=>(
                 <div key={k} style={s.inset(12)}>
                   <div style={{fontSize:10,fontWeight:700,color:G.text3,textTransform:'uppercase',letterSpacing:'.7px',marginBottom:3}}>{k}</div>
                   <div style={{fontSize:13,fontWeight:600,color:G.accent,...(m?s.mono:{})}}>{v}</div>
@@ -2440,14 +2682,35 @@ function PageStaff({ toast }) {
             </div>
             <div style={s.flex(10)}>
               <Btn variant="ghost" style={{flex:1}} onClick={()=>setShowView(null)}>Close</Btn>
-              <Btn variant="primary" style={{flex:1}} onClick={()=>{setStaff(p=>p.map(s=>s.id===showView.id?{...s,present:!s.present}:s));toast('Attendance updated ✓');setShowView(null);}}>Toggle Attendance</Btn>
+              <Btn variant="primary" style={{flex:1}} onClick={()=>{markAttendance(showView.id, showView.present?'Absent':'Present');setShowView(null);}}>Toggle Attendance</Btn>
             </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!showPayModal} onClose={()=>setShowPayModal(null)} title={`Pay Salary — ${showPayModal?.name}`} width={420}>
+        {showPayModal && (
+          <div>
+            <div style={{...s.inset(14),background:G.bg3,border:`1px solid ${G.border2}`,marginBottom:14,textAlign:'center'}}>
+              <div style={{fontSize:11,fontWeight:700,color:G.text3,textTransform:'uppercase'}}>Amount</div>
+              <div style={{...s.mono,fontSize:28,fontWeight:800,color:G.accent,marginTop:4}}>₹{(parseInt(showPayModal.salary)||0).toLocaleString('en-IN')}</div>
+              <div style={{fontSize:11,color:G.text3,marginTop:2}}>{salMonth} · {showPayModal.role}</div>
+            </div>
+            <FG label="Payment Mode">
+              <div style={{display:'flex',gap:6}}>
+                {['UPI','Cash','Bank Transfer'].map(m=>(
+                  <button key={m} onClick={()=>setPayMode(m)} style={{flex:1,padding:'8px 12px',borderRadius:7,fontSize:12,fontWeight:payMode===m?700:500,background:payMode===m?G.bg4:'transparent',color:payMode===m?G.accent:G.text2,border:`1.5px solid ${payMode===m?G.accentL:G.border}`,cursor:'pointer'}}>{m}</button>
+                ))}
+              </div>
+            </FG>
+            <MFooter onCancel={()=>setShowPayModal(null)} onSave={()=>markSalaryPaid(showPayModal.id)} saveLabel="✅ Mark as Paid"/>
           </div>
         )}
       </Modal>
     </div>
   );
 }
+
 
 function PagePT({ toast }) {
   const { trainers, setTrainers, members, gymUser } = useGym();

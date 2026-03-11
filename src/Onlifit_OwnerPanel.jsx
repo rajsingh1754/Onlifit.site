@@ -292,7 +292,7 @@ function Login({ onLogin }) {
       });
       if (authErr || !authData?.user) { setErr("Incorrect email or password."); setBusy(false); return; }
       // Verify this user is a platform admin
-      const { data: acct } = await supabase.from('platform_admins').select('id').eq('email', authData.user.email).single();
+      const { data: acct } = await supabase.from('platform_admins').select('id').ilike('email', authData.user.email).single();
       if (acct) { onLogin(); return; }
       await supabase.auth.signOut();
       setErr("Access denied. This panel is restricted to platform admins."); setBusy(false);
@@ -1409,7 +1409,7 @@ export default function OwnerPanelApp() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
-          const { data: acct } = await supabase.from('platform_admins').select('id').eq('email', session.user.email).single();
+          const { data: acct } = await supabase.from('platform_admins').select('id').ilike('email', session.user.email).single();
           if (acct) { setAuthed(true); }
         }
       } catch(e) {}

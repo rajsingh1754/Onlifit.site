@@ -24,7 +24,7 @@ ALTER TABLE platform_admins ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins can view platform_admins" ON platform_admins;
 CREATE POLICY "Admins can view platform_admins"
   ON platform_admins FOR SELECT
-  USING (email = (SELECT email FROM auth.users WHERE id = auth.uid()));
+  USING (lower(email) = lower((SELECT email FROM auth.users WHERE id = auth.uid())));
 
 -- ── PLATFORM ADMIN ACCESS TO ALL GYM DATA ────────────────────────────────────
 -- These policies let platform admins see ALL rows in gym_accounts

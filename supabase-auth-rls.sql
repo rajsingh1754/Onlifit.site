@@ -54,109 +54,157 @@ $$;
 
 -- ── GYM ACCOUNTS ──────────────────────────────────────────────────────────────
 -- Users can only read their own gym account
+DROP POLICY IF EXISTS "Users can view own gym account" ON gym_accounts;
 CREATE POLICY "Users can view own gym account"
   ON gym_accounts FOR SELECT
   USING (email = (SELECT email FROM auth.users WHERE id = auth.uid()));
 
+DROP POLICY IF EXISTS "Users can update own gym account" ON gym_accounts;
 CREATE POLICY "Users can update own gym account"
   ON gym_accounts FOR UPDATE
   USING (email = (SELECT email FROM auth.users WHERE id = auth.uid()));
 
 -- ── GYM PROFILES ──────────────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Users can view own gym profile" ON gym_profiles;
 CREATE POLICY "Users can view own gym profile"
   ON gym_profiles FOR SELECT
   USING (gym_id = public.get_my_gym_id());
 
+DROP POLICY IF EXISTS "Users can insert own gym profile" ON gym_profiles;
 CREATE POLICY "Users can insert own gym profile"
   ON gym_profiles FOR INSERT
   WITH CHECK (gym_id = public.get_my_gym_id());
 
+DROP POLICY IF EXISTS "Users can update own gym profile" ON gym_profiles;
 CREATE POLICY "Users can update own gym profile"
   ON gym_profiles FOR UPDATE
   USING (gym_id = public.get_my_gym_id());
 
 -- ── MEMBERS ───────────────────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Users can view own gym members" ON members;
 CREATE POLICY "Users can view own gym members"
   ON members FOR SELECT
   USING (gym_id = public.get_my_gym_id());
 
+DROP POLICY IF EXISTS "Users can insert own gym members" ON members;
 CREATE POLICY "Users can insert own gym members"
   ON members FOR INSERT
   WITH CHECK (gym_id = public.get_my_gym_id());
 
+DROP POLICY IF EXISTS "Users can update own gym members" ON members;
 CREATE POLICY "Users can update own gym members"
   ON members FOR UPDATE
   USING (gym_id = public.get_my_gym_id());
 
+DROP POLICY IF EXISTS "Users can delete own gym members" ON members;
 CREATE POLICY "Users can delete own gym members"
   ON members FOR DELETE
   USING (gym_id = public.get_my_gym_id());
 
 -- ── STAFF ─────────────────────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Users can view own gym staff" ON staff;
 CREATE POLICY "Users can view own gym staff"
   ON staff FOR SELECT
   USING (gym_id = public.get_my_gym_id());
 
+DROP POLICY IF EXISTS "Users can insert own gym staff" ON staff;
 CREATE POLICY "Users can insert own gym staff"
   ON staff FOR INSERT
   WITH CHECK (gym_id = public.get_my_gym_id());
 
+DROP POLICY IF EXISTS "Users can update own gym staff" ON staff;
 CREATE POLICY "Users can update own gym staff"
   ON staff FOR UPDATE
   USING (gym_id = public.get_my_gym_id());
 
+DROP POLICY IF EXISTS "Users can delete own gym staff" ON staff;
 CREATE POLICY "Users can delete own gym staff"
   ON staff FOR DELETE
   USING (gym_id = public.get_my_gym_id());
 
 -- ── TRAINERS ──────────────────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Users can view own gym trainers" ON trainers;
 CREATE POLICY "Users can view own gym trainers"
   ON trainers FOR SELECT
   USING (gym_id = public.get_my_gym_id());
 
+DROP POLICY IF EXISTS "Users can insert own gym trainers" ON trainers;
 CREATE POLICY "Users can insert own gym trainers"
   ON trainers FOR INSERT
   WITH CHECK (gym_id = public.get_my_gym_id());
 
+DROP POLICY IF EXISTS "Users can update own gym trainers" ON trainers;
 CREATE POLICY "Users can update own gym trainers"
   ON trainers FOR UPDATE
   USING (gym_id = public.get_my_gym_id());
 
 -- ── ATTENDANCE ────────────────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Users can view own gym attendance" ON attendance;
 CREATE POLICY "Users can view own gym attendance"
   ON attendance FOR SELECT
   USING (gym_id = public.get_my_gym_id());
 
+DROP POLICY IF EXISTS "Users can insert own gym attendance" ON attendance;
 CREATE POLICY "Users can insert own gym attendance"
   ON attendance FOR INSERT
   WITH CHECK (gym_id = public.get_my_gym_id());
 
+DROP POLICY IF EXISTS "Users can update own gym attendance" ON attendance;
 CREATE POLICY "Users can update own gym attendance"
   ON attendance FOR UPDATE
   USING (gym_id = public.get_my_gym_id());
 
 -- ── PLANS ─────────────────────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Users can view own gym plans" ON plans;
 CREATE POLICY "Users can view own gym plans"
   ON plans FOR SELECT
   USING (gym_id = public.get_my_gym_id());
 
+DROP POLICY IF EXISTS "Users can insert own gym plans" ON plans;
 CREATE POLICY "Users can insert own gym plans"
   ON plans FOR INSERT
   WITH CHECK (gym_id = public.get_my_gym_id());
 
+DROP POLICY IF EXISTS "Users can update own gym plans" ON plans;
 CREATE POLICY "Users can update own gym plans"
   ON plans FOR UPDATE
   USING (gym_id = public.get_my_gym_id());
 
 -- ── PAYMENTS ──────────────────────────────────────────────────────────────────
+DROP POLICY IF EXISTS "Users can view own gym payments" ON payments;
 CREATE POLICY "Users can view own gym payments"
   ON payments FOR SELECT
   USING (gym_id = public.get_my_gym_id());
 
+DROP POLICY IF EXISTS "Users can insert own gym payments" ON payments;
 CREATE POLICY "Users can insert own gym payments"
   ON payments FOR INSERT
   WITH CHECK (gym_id = public.get_my_gym_id());
 
+DROP POLICY IF EXISTS "Users can update own gym payments" ON payments;
 CREATE POLICY "Users can update own gym payments"
   ON payments FOR UPDATE
+  USING (gym_id = public.get_my_gym_id());
+
+-- ── ENQUIRIES ─────────────────────────────────────────────────────────────────
+ALTER TABLE enquiries ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own gym enquiries" ON enquiries;
+CREATE POLICY "Users can view own gym enquiries"
+  ON enquiries FOR SELECT
+  USING (gym_id = public.get_my_gym_id());
+
+DROP POLICY IF EXISTS "Users can insert own gym enquiries" ON enquiries;
+CREATE POLICY "Users can insert own gym enquiries"
+  ON enquiries FOR INSERT
+  WITH CHECK (gym_id = public.get_my_gym_id());
+
+DROP POLICY IF EXISTS "Users can update own gym enquiries" ON enquiries;
+CREATE POLICY "Users can update own gym enquiries"
+  ON enquiries FOR UPDATE
+  USING (gym_id = public.get_my_gym_id());
+
+DROP POLICY IF EXISTS "Users can delete own gym enquiries" ON enquiries;
+CREATE POLICY "Users can delete own gym enquiries"
+  ON enquiries FOR DELETE
   USING (gym_id = public.get_my_gym_id());

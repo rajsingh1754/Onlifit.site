@@ -70,16 +70,6 @@ const LABEL = { fontSize:11, color:G.text3, letterSpacing:".5px", textTransform:
 const INPUT = { width:"100%", background:G.bg, border:`1.5px solid ${G.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, color:G.text, transition:"border .2s" };
 
 // ─── DATA ─────────────────────────────────────────────────────────────────────
-const FALLBACK_GYMS = [
-  { id:"GYM-001", name:"Onlifit",   owner:"Rajesh Kumar",  phone:"+91 98765 43210", email:"raj@onlifit.com",     city:"Bangalore", state:"Karnataka", branches:3, members:247, status:"active",    plan:"Multi-Branch", mrr:4999, lastPaid:"Mar 1, 2025",  nextDue:"Apr 1, 2025",  att:34,  joined:"Jan 15, 2025", gstin:"29AAFCI1234A1Z5" },
-  { id:"GYM-002", name:"PowerZone Gym",    owner:"Suresh Nair",   phone:"+91 87654 32109", email:"suresh@pzone.com",   city:"Chennai",   state:"Tamil Nadu",  branches:1, members:98,  status:"active",    plan:"Growth",       mrr:2999, lastPaid:"Mar 3, 2025",  nextDue:"Apr 3, 2025",  att:18,  joined:"Feb 1, 2025",  gstin:"33AAFCP5678B2Z1" },
-  { id:"GYM-003", name:"FitLife Studio",   owner:"Priya Menon",   phone:"+91 76543 21098", email:"priya@fitlife.com",  city:"Mumbai",    state:"Maharashtra", branches:1, members:64,  status:"suspended", plan:"Starter",      mrr:1999, lastPaid:"Jan 15, 2025", nextDue:"Feb 15, 2025", att:0,   joined:"Dec 10, 2024", gstin:"27AAFCF3456C3Z9" },
-  { id:"GYM-004", name:"EliteGym Pro",     owner:"Amit Sharma",   phone:"+91 65432 10987", email:"amit@elite.com",    city:"Delhi",     state:"Delhi",       branches:2, members:183, status:"active",    plan:"Multi-Branch", mrr:4999, lastPaid:"Mar 5, 2025",  nextDue:"Apr 5, 2025",  att:29,  joined:"Nov 20, 2024", gstin:"07AAFCE7890D4Z2" },
-  { id:"GYM-005", name:"Muscle Factory",   owner:"Vikram Patel",  phone:"+91 54321 09876", email:"vikram@mf.com",     city:"Pune",      state:"Maharashtra", branches:1, members:41,  status:"overdue",   plan:"Starter",      mrr:1999, lastPaid:"Feb 5, 2025",  nextDue:"Mar 5, 2025",  att:7,   joined:"Feb 5, 2025",  gstin:"27AAFCM1122E5Z6" },
-  { id:"GYM-006", name:"ZenFit Wellness",  owner:"Anita Reddy",   phone:"+91 43210 98765", email:"anita@zenfit.com",  city:"Hyderabad", state:"Telangana",   branches:1, members:76,  status:"active",    plan:"Growth",       mrr:2999, lastPaid:"Mar 7, 2025",  nextDue:"Apr 7, 2025",  att:12,  joined:"Jan 7, 2025",  gstin:"36AAFCZ3344F6Z3" },
-  { id:"GYM-007", name:"ThunderGym",       owner:"Ravi Iyer",     phone:"+91 32109 87654", email:"ravi@tgym.com",    city:"Kochi",     state:"Kerala",      branches:1, members:55,  status:"suspended", plan:"Growth",       mrr:2999, lastPaid:"Feb 1, 2025",  nextDue:"Mar 1, 2025",  att:0,   joined:"Jan 20, 2025", gstin:"32AAFCT5566G7Z0" },
-  { id:"GYM-008", name:"NexGen Fitness",   owner:"Deepa Singh",   phone:"+91 21098 76543", email:"deepa@nexgen.com", city:"Jaipur",    state:"Rajasthan",   branches:1, members:89,  status:"active",    plan:"Growth",       mrr:2999, lastPaid:"Mar 2, 2025",  nextDue:"Apr 2, 2025",  att:15,  joined:"Dec 28, 2024", gstin:"08AAFCN7788H8Z4" },
-];
 const REVENUE_HISTORY = [
   { m:"Oct 24", v:8997  },
   { m:"Nov 24", v:13996 },
@@ -297,20 +287,18 @@ function Login({ onLogin }) {
     if (!email.trim()||!pass.trim()) { setErr("Both fields are required."); return; }
     setBusy(true); setErr("");
     try {
-      // Try Supabase Auth first
       const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
         email: email.trim().toLowerCase(), password: pass,
       });
-      if (!authErr && authData?.user) {
-        const { data: acct } = await supabase.from('gym_accounts').select('role').eq('email', authData.user.email).single();
-        if (acct?.role === 'super_admin') { onLogin(); return; }
-      }
-    } catch(e) { /* fall through */ }
-    // Fallback to hardcoded
-    setTimeout(() => {
-      if (email.trim().toLowerCase()==="owner@onlifit.app" && pass==="onlifit@2025") onLogin();
-      else { setErr("Incorrect email or password."); setBusy(false); }
-    }, 700);
+      if (authErr || !authData?.user) { setErr("Incorrect email or password."); setBusy(false); return; }
+      // Verify this user is a platform admin
+      const { data: acct } = await supabase.from('platform_admins').select('id').eq('email', authData.user.email).single();
+      if (acct) { onLogin(); return; }
+      await supabase.auth.signOut();
+      setErr("Access denied. This panel is restricted to platform admins."); setBusy(false);
+    } catch(e) {
+      setErr("Login failed. Please try again."); setBusy(false);
+    }
   };
 
   return (
@@ -335,7 +323,7 @@ function Login({ onLogin }) {
 
           <FG label="Email address">
             <Fi value={email} onChange={e=>{setEmail(e.target.value);setErr("");}}
-              onKeyDown={e=>e.key==="Enter"&&submit()} placeholder="owner@onlifit.app" />
+              onKeyDown={e=>e.key==="Enter"&&submit()} placeholder="admin@onlifit.app" />
           </FG>
 
           <FG label="Password">
@@ -357,9 +345,8 @@ function Login({ onLogin }) {
             {busy ? "Verifying..." : "Access Control Panel →"}
           </Btn>
 
-          <div style={{ textAlign:"center", marginTop:16, fontSize:11, color:G.text3, ...fl(4), justifyContent:"center" }}>
-            Demo:&nbsp;<span style={{ ...mono, color:G.accent, fontSize:11 }}>owner@onlifit.app</span>
-            &nbsp;/&nbsp;<span style={{ ...mono, color:G.accent, fontSize:11 }}>onlifit@2025</span>
+          <div style={{ textAlign:"center", marginTop:16, fontSize:11, color:G.text3 }}>
+            Restricted to Onlifit platform admins only.
           </div>
         </div>
 
@@ -1194,11 +1181,11 @@ function Panel({ onLogout }) {
           }
           setGyms(mapped);
         } else {
-          setGyms(FALLBACK_GYMS);
+          setGyms([]);
         }
       } catch(e) {
         console.error("[OwnerPanel] Load error:", e);
-        setGyms(FALLBACK_GYMS);
+        setGyms([]);
       }
       setLoading(false);
     })();
@@ -1412,12 +1399,25 @@ function Panel({ onLogout }) {
 // ═════════════════════════════════════════════════════════════════════════════
 export default function OwnerPanelApp() {
   const [authed, setAuthed] = useState(false);
+  const [checking, setChecking] = useState(true);
   useEffect(()=>{
     const el = document.createElement("style");
     el.textContent = STYLES;
     document.head.appendChild(el);
+    // Check existing session
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const { data: acct } = await supabase.from('platform_admins').select('id').eq('email', session.user.email).single();
+          if (acct) { setAuthed(true); }
+        }
+      } catch(e) {}
+      setChecking(false);
+    })();
     return ()=>document.head.removeChild(el);
   },[]);
   const handleLogout = async () => { try { await supabase.auth.signOut(); } catch(e){} setAuthed(false); };
+  if (checking) return <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'#f9fafb'}}><div style={{fontSize:14,color:'#9ca3af'}}>Loading...</div></div>;
   return authed ? <Panel onLogout={handleLogout} /> : <Login onLogin={()=>setAuthed(true)} />;
 }

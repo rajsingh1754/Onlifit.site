@@ -2,25 +2,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import jsQR from "jsqr";
 import { supabase } from "./supabase";
 
-// Hardcoded fallback DB (used when Supabase returns empty)
-const FALLBACK_DB = {
-  "IQ-KRM-0001": { id:"IQ-KRM-0001", name:"Arjun Mehta",   init:"AM", plan:"Yearly",    expiry:"Dec 31 2025", status:"Active",  phone:"+91 98765 43210", trainer:"Vikram Singh", visits:87,  daysLeft:296 },
-  "IQ-KRM-0002": { id:"IQ-KRM-0002", name:"Priya Sharma",  init:"PS", plan:"Quarterly", expiry:"Apr 30 2025", status:"Active",  phone:"+91 87654 32109", trainer:"Pooja Reddy",  visits:42,  daysLeft:51  },
-  "IQ-KRM-0003": { id:"IQ-KRM-0003", name:"Karan Patel",   init:"KP", plan:"Monthly",   expiry:"Mar 14 2025", status:"Expired", phone:"+91 76543 21098", trainer:"Aryan Nair",   visits:18,  daysLeft:0   },
-  "IQ-KRM-0004": { id:"IQ-KRM-0004", name:"Sneha Rao",     init:"SR", plan:"Yearly",    expiry:"Jan 9 2026",  status:"Active",  phone:"+91 65432 10987", trainer:"Vikram Singh", visits:63,  daysLeft:305 },
-  "IQ-KRM-0005": { id:"IQ-KRM-0005", name:"Mohit Jain",    init:"MJ", plan:"Monthly",   expiry:"Mar 31 2025", status:"Active",  phone:"+91 54321 09876", trainer:"Pooja Reddy",  visits:9,   daysLeft:21  },
-  "IQ-KRM-0006": { id:"IQ-KRM-0006", name:"Divya Nair",    init:"DN", plan:"Quarterly", expiry:"Feb 28 2025", status:"Expired", phone:"+91 43210 98765", trainer:"Aryan Nair",   visits:34,  daysLeft:0   },
-  "IQ-KRM-0007": { id:"IQ-KRM-0007", name:"Rohan Gupta",   init:"RG", plan:"Yearly",    expiry:"Feb 28 2026", status:"Frozen",  phone:"+91 32109 87654", trainer:"Vikram Singh", visits:156, daysLeft:0   },
-};
-
-const INIT_LOG = [
-  { ...FALLBACK_DB["IQ-KRM-0004"], time:"6:02 AM", result:"allowed" },
-  { ...FALLBACK_DB["IQ-KRM-0001"], time:"6:18 AM", result:"allowed" },
-  { ...FALLBACK_DB["IQ-KRM-0002"], time:"7:05 AM", result:"allowed" },
-  { ...FALLBACK_DB["IQ-KRM-0003"], time:"7:22 AM", result:"denied"  },
-  { ...FALLBACK_DB["IQ-KRM-0005"], time:"7:34 AM", result:"allowed" },
-];
-
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700&display=swap');
   *{box-sizing:border-box;margin:0;padding:0}
@@ -70,11 +51,11 @@ export default function ReceptionScanner() {
 
   const [camState, setCamState]   = useState("idle");   // idle | requesting | active | error
   const [result, setResult]       = useState(null);     // current scan result
-  const [log, setLog]             = useState(INIT_LOG);
+  const [log, setLog]             = useState([]);
   const [clock, setClock]         = useState(nowTime());
   const [tab, setTab]             = useState("scanner"); // scanner | log
   const [aiThinking, setAiThink]  = useState(false);
-  const [DB, setDB]               = useState(FALLBACK_DB);
+  const [DB, setDB]               = useState({});
   const [gymId, setGymId]         = useState(null);
 
   // Load members from Supabase for the logged-in gym

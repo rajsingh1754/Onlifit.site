@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { QRCodeCanvas } from "qrcode.react";
 import { supabase } from "./supabase";
 
@@ -74,96 +74,6 @@ const css = `
 `;
 
 // ─── MEMBER DATA (fallback for demo) ──────────────────────────────────────────
-const FALLBACK_MEMBERS = {
-  "IQ-KRM-0001": {
-    id:"IQ-KRM-0001", name:"Arjun Mehta", init:"AM",
-    phone:"+91 98765 43210", email:"arjun@email.com", dob:"Mar 15, 1995",
-    plan:"Yearly", planPrice:14000, expiry:"Dec 31, 2025", daysLeft:296,
-    status:"Active", joinDate:"Jan 1, 2025", branch:"Koramangala",
-    trainer:"Vikram Singh", trainerInit:"VS", trainerSpec:"Strength & Conditioning",
-    totalVisits:87, streak:5, thisMonth:18,
-    attendance: [
-      {date:"Mar 10",day:"Mon",checked:true,time:"6:02 AM"},
-      {date:"Mar 9", day:"Sun",checked:false,time:null},
-      {date:"Mar 8", day:"Sat",checked:true, time:"7:15 AM"},
-      {date:"Mar 7", day:"Fri",checked:true, time:"6:30 AM"},
-      {date:"Mar 6", day:"Thu",checked:true, time:"6:08 AM"},
-      {date:"Mar 5", day:"Wed",checked:false,time:null},
-      {date:"Mar 4", day:"Tue",checked:true, time:"6:45 AM"},
-      {date:"Mar 3", day:"Mon",checked:true, time:"6:12 AM"},
-      {date:"Mar 2", day:"Sun",checked:false,time:null},
-      {date:"Mar 1", day:"Sat",checked:true, time:"8:00 AM"},
-      {date:"Feb 28",day:"Fri",checked:true, time:"6:20 AM"},
-      {date:"Feb 27",day:"Thu",checked:true, time:"6:05 AM"},
-    ],
-    ptSessions:[
-      {date:"Mar 10",time:"6:00 AM",trainer:"Vikram Singh",type:"Strength",status:"Completed",notes:"New PB on deadlift -- 120kg"},
-      {date:"Mar 7", time:"6:00 AM",trainer:"Vikram Singh",type:"Strength",status:"Completed",notes:"Bench press progression"},
-      {date:"Mar 13",time:"6:00 AM",trainer:"Vikram Singh",type:"Strength",status:"Scheduled", notes:""},
-      {date:"Mar 15",time:"6:00 AM",trainer:"Vikram Singh",type:"Assessment",status:"Scheduled",notes:"Monthly check-in"},
-    ],
-    plan_details:{
-      name:"Yearly Plan", price:14000, duration:"365 days",
-      features:["Unlimited Gym Access","4 PT Sessions Included","Locker Access","Group Classes","Nutrition Consultation"],
-      nextBilling:"Dec 31, 2025",
-    },
-    workout:{
-      goal:"Muscle Building", level:"Intermediate", weeks:12,
-      days:[
-        {day:"Monday",   focus:"Push",  exercises:["Bench Press 4×8","OHP 3×10","Incline DB 3×12","Lateral Raise 3×15","Tricep Pushdown 3×12"]},
-        {day:"Tuesday",  focus:"Pull",  exercises:["Deadlift 4×5","Barbell Row 4×8","Pull-ups 3×10","Face Pulls 3×15","Bicep Curl 3×12"]},
-        {day:"Wednesday",focus:"Rest",  exercises:["Light Walk 20min","Stretching","Foam Rolling"]},
-        {day:"Thursday", focus:"Legs",  exercises:["Squat 4×8","Romanian DL 3×10","Leg Press 3×12","Lunges 3×10","Calf Raise 4×15"]},
-        {day:"Friday",   focus:"Push",  exercises:["OHP 4×8","Dips 3×10","Cable Fly 3×15","Skull Crushers 3×12"]},
-        {day:"Saturday", focus:"Pull",  exercises:["T-Bar Row 4×8","Cable Row 3×12","Hammer Curl 3×12","Shrugs 3×15"]},
-        {day:"Sunday",   focus:"Rest",  exercises:["Full rest or light cardio"]},
-      ]
-    }
-  },
-  "IQ-KRM-0002": {
-    id:"IQ-KRM-0002", name:"Priya Sharma", init:"PS",
-    phone:"+91 87654 32109", email:"priya@email.com", dob:"Jul 22, 1998",
-    plan:"Quarterly", planPrice:4000, expiry:"Apr 30, 2025", daysLeft:51,
-    status:"Active", joinDate:"Feb 1, 2025", branch:"Koramangala",
-    trainer:"Pooja Reddy", trainerInit:"PR", trainerSpec:"Weight Loss & Yoga",
-    totalVisits:42, streak:3, thisMonth:12,
-    attendance:[
-      {date:"Mar 10",day:"Mon",checked:true, time:"7:05 AM"},
-      {date:"Mar 9", day:"Sun",checked:false,time:null},
-      {date:"Mar 8", day:"Sat",checked:true, time:"7:30 AM"},
-      {date:"Mar 7", day:"Fri",checked:true, time:"7:10 AM"},
-      {date:"Mar 6", day:"Thu",checked:false,time:null},
-      {date:"Mar 5", day:"Wed",checked:true, time:"7:00 AM"},
-      {date:"Mar 4", day:"Tue",checked:false,time:null},
-      {date:"Mar 3", day:"Mon",checked:true, time:"7:15 AM"},
-    ],
-    ptSessions:[
-      {date:"Mar 10",time:"7:00 AM",trainer:"Pooja Reddy",type:"HIIT",status:"Completed",notes:"Great endurance improvement"},
-      {date:"Mar 12",time:"7:00 AM",trainer:"Pooja Reddy",type:"Yoga",status:"Scheduled",notes:""},
-    ],
-    plan_details:{
-      name:"Quarterly Plan", price:4000, duration:"90 days",
-      features:["Unlimited Gym Access","Locker Access","Group Classes"],
-      nextBilling:"Apr 30, 2025",
-    },
-    workout:{
-      goal:"Weight Loss", level:"Beginner", weeks:8,
-      days:[
-        {day:"Monday",   focus:"Cardio", exercises:["Treadmill 20min","Jump Rope 10min","Burpees 3×15","Mountain Climbers 3×20"]},
-        {day:"Tuesday",  focus:"Yoga",   exercises:["Sun Salutation","Warrior Sequence","Core Flow","Savasana"]},
-        {day:"Wednesday",focus:"Rest",   exercises:["Light Walk","Stretching"]},
-        {day:"Thursday", focus:"HIIT",   exercises:["Circuit 4 rounds","Squat Jumps×20","Push-ups×15","High Knees×30","Plank 45s"]},
-        {day:"Friday",   focus:"Cardio", exercises:["Cycle 25min","Elliptical 15min","Cool-down stretching"]},
-        {day:"Saturday", focus:"Full Body",exercises:["Goblet Squat 3×12","DB Row 3×12","Hip Thrust 3×15","Plank 3×45s"]},
-        {day:"Sunday",   focus:"Rest",   exercises:["Complete rest"]},
-      ]
-    }
-  },
-};
-
-// OTP is always "1234" for demo
-const DEMO_OTP = "1234";
-
 const fmt = (n) => String(n).padStart(2,"0");
 const nowTime = () => { const d=new Date(); return `${fmt(d.getHours())}:${fmt(d.getMinutes())}`; };
 
@@ -171,89 +81,62 @@ const nowTime = () => { const d=new Date(); return `${fmt(d.getHours())}:${fmt(d
 // LOGIN SCREEN
 // ══════════════════════════════════════════════════════════════════════════════
 function LoginScreen({ onLogin }) {
-  const [step, setStep]     = useState("id");   // id | otp | loading | error
+  const [step, setStep]     = useState("id");   // id | loading
   const [memberId, setMId]  = useState("");
-  const [otp, setOtp]       = useState(["","","","",""]);
   const [error, setError]   = useState("");
-  const [resend, setResend] = useState(0);
   const [foundMember, setFoundMember] = useState(null);
-  const otpRefs             = useRef([]);
-
-  // Resend countdown
-  useEffect(() => {
-    if (resend > 0) { const t = setTimeout(() => setResend(r => r-1), 1000); return () => clearTimeout(t); }
-  }, [resend]);
 
   const handleIdSubmit = async () => {
-    const id = memberId.trim().toUpperCase();
-    // Try Supabase first
+    const input = memberId.trim();
+    if (!input) { setError("Please enter your Member ID or registered phone number."); return; }
+    // Determine if input is a phone number or member ID
+    const isPhone = /^\+?\d[\d\s-]{7,}$/.test(input);
     try {
-      const { data } = await supabase.from('members').select('*').eq('id', id).single();
-      if (data) {
-        const expDate = data.expiry_date ? new Date(data.expiry_date) : null;
-        const daysLeft = expDate ? Math.max(0, Math.ceil((expDate - Date.now()) / 864e5)) : 0;
-        const m = {
-          id: data.id, name: data.name, init: data.initials || data.name.split(' ').map(w=>w[0]).join(''),
-          phone: data.phone, email: data.email, dob: data.dob || '',
-          plan: data.plan, planPrice: 0, expiry: data.expiry_date, daysLeft,
-          status: data.status, joinDate: data.start_date, branch: 'Main',
-          trainer: data.trainer || '', trainerInit: (data.trainer||'').split(' ').map(w=>w[0]).join(''), trainerSpec: '',
-          totalVisits: data.visits || 0, streak: 0, thisMonth: 0,
-          gym_id: data.gym_id || 'GYM001',
-          freeze_start: data.freeze_start || '',
-          emergency_contact: data.emergency_contact || '',
-          emergency_phone: data.emergency_phone || '',
-          attendance: [], ptSessions: [],
-          plan_details: { name: data.plan, price: 0, duration: '', features: ["Gym Access"], nextBilling: data.expiry_date },
-          workout: { goal:"General Fitness", level:"Intermediate", weeks:12, days:[] },
-        };
-        // Load attendance for this member
-        const { data: att } = await supabase.from('attendance').select('*').eq('member_id', id).order('created_at', { ascending: false }).limit(30);
-        if (att && att.length > 0) {
-          m.attendance = att.map(a => ({ date: a.date, day: '', checked: true, time: a.check_in }));
-          m.thisMonth = att.filter(a => a.date === 'Today' || a.date?.includes('Mar')).length;
-        }
-        // Load plan price
-        const { data: planData } = await supabase.from('plans').select('price').eq('gym_id', data.gym_id).eq('name', data.plan).single();
-        if (planData) { m.planPrice = planData.price; m.plan_details.price = planData.price; }
-        setFoundMember(m);
-        setError("");
-        setStep("loading");
-        setTimeout(() => { setStep("otp"); setResend(30); }, 1200);
-        return;
+      let data;
+      if (isPhone) {
+        const phone = input.replace(/[\s-]/g, '');
+        const { data: d } = await supabase.from('members').select('*').or(`phone.eq.${phone},phone.eq.+91${phone},phone.ilike.%${phone.slice(-10)}%`).limit(1).single();
+        data = d;
+      } else {
+        const id = input.toUpperCase();
+        const { data: d } = await supabase.from('members').select('*').eq('id', id).single();
+        data = d;
       }
-    } catch(e) { /* fall through to fallback */ }
-    // Fallback to hardcoded data
-    if (!FALLBACK_MEMBERS[id]) { setError("Member ID not found. Try IQ-KRM-0001"); return; }
-    setFoundMember(FALLBACK_MEMBERS[id]);
-    setError("");
-    setStep("loading");
-    setTimeout(() => { setStep("otp"); setResend(30); }, 1200);
-  };
-
-  const handleOtpChange = (i, val) => {
-    if (!/^\d?$/.test(val)) return;
-    const next = [...otp]; next[i] = val;
-    setOtp(next);
-    if (val && i < 4) otpRefs.current[i+1]?.focus();
-  };
-
-  const handleOtpKey = (i, e) => {
-    if (e.key === "Backspace" && !otp[i] && i > 0) otpRefs.current[i-1]?.focus();
-  };
-
-  const handleOtpSubmit = () => {
-    const entered = otp.join("");
-    if (entered.length < 5) { setError("Enter all 5 digits"); return; }
-    if (entered !== DEMO_OTP.padStart(5,"0").slice(-5) && entered !== "12345" && entered !== "00000" && entered !== DEMO_OTP + "4") {
-      // Accept "1234" + any digit for simplicity, or just "12340"
-      if (entered !== "12340" && entered !== "00000") {
-        // Actually just accept any 5-digit for demo
+      if (!data) { setError("Not found. Check your Member ID or phone number."); return; }
+      const expDate = data.expiry_date ? new Date(data.expiry_date) : null;
+      const daysLeft = expDate ? Math.max(0, Math.ceil((expDate - Date.now()) / 864e5)) : 0;
+      const m = {
+        id: data.id, name: data.name, init: data.initials || data.name.split(' ').map(w=>w[0]).join(''),
+        phone: data.phone, email: data.email, dob: data.dob || '',
+        plan: data.plan, planPrice: 0, expiry: data.expiry_date, daysLeft,
+        status: data.status, joinDate: data.start_date, branch: 'Main',
+        trainer: data.trainer || '', trainerInit: (data.trainer||'').split(' ').map(w=>w[0]).join(''), trainerSpec: '',
+        totalVisits: data.visits || 0, streak: 0, thisMonth: 0,
+        gym_id: data.gym_id || 'GYM001',
+        freeze_start: data.freeze_start || '',
+        emergency_contact: data.emergency_contact || '',
+        emergency_phone: data.emergency_phone || '',
+        attendance: [], ptSessions: [],
+        plan_details: { name: data.plan, price: 0, duration: '', features: ["Gym Access"], nextBilling: data.expiry_date },
+        workout: { goal:"General Fitness", level:"Intermediate", weeks:12, days:[] },
+      };
+      // Load attendance for this member
+      const { data: att } = await supabase.from('attendance').select('*').eq('member_id', data.id).order('created_at', { ascending: false }).limit(30);
+      if (att && att.length > 0) {
+        m.attendance = att.map(a => ({ date: a.date, day: '', checked: true, time: a.check_in }));
+        const thisMonth = new Date().toLocaleString('en-US',{month:'short'});
+        m.thisMonth = att.filter(a => a.date?.includes(thisMonth)).length;
       }
+      // Load plan price
+      const { data: planData } = await supabase.from('plans').select('price').eq('gym_id', data.gym_id).eq('name', data.plan).single();
+      if (planData) { m.planPrice = planData.price; m.plan_details.price = planData.price; }
+      setFoundMember(m);
+      setError("");
+      setStep("loading");
+      setTimeout(() => { onLogin(m); }, 1500);
+    } catch(e) {
+      setError("Not found. Check your Member ID or phone number.");
     }
-    setError("");
-    setStep("loading");
-    setTimeout(() => { onLogin(foundMember); }, 1000);
   };
 
   return (
@@ -276,16 +159,16 @@ function LoginScreen({ onLogin }) {
         <div className="fade-up stagger-1" style={{ background:"rgba(255,255,255,.06)", backdropFilter:"blur(20px)", border:"1px solid rgba(255,255,255,.1)", borderRadius:20, padding:28, boxShadow:"0 20px 60px rgba(0,0,0,.3)" }}>
 
           {/* STEP: ID */}
-          {(step === "id" || step === "error") && (
+          {step === "id" && (
             <div>
               <div style={{ fontSize:18, fontWeight:700, color:"#fff", marginBottom:4 }}>Welcome back 👋</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,.45)", marginBottom:24 }}>Enter your Member ID to receive an OTP</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.45)", marginBottom:24 }}>Enter your Member ID or registered phone number</div>
 
-              <label style={{ fontSize:11, color:"rgba(255,255,255,.4)", fontWeight:600, textTransform:"uppercase", letterSpacing:"1px", display:"block", marginBottom:8 }}>Member ID</label>
+              <label style={{ fontSize:11, color:"rgba(255,255,255,.4)", fontWeight:600, textTransform:"uppercase", letterSpacing:"1px", display:"block", marginBottom:8 }}>Member ID / Phone</label>
               <input
                 value={memberId} onChange={e => { setMId(e.target.value.toUpperCase()); setError(""); }}
                 onKeyDown={e => { if(e.key==="Enter") handleIdSubmit(); }}
-                placeholder="IQ-KRM-XXXX"
+                placeholder="IQ-KRM-XXXX or 98765 43210"
                 style={{ width:"100%", background:"rgba(255,255,255,.08)", border:`1.5px solid ${error?"#f87171":"rgba(255,255,255,.15)"}`, borderRadius:10, padding:"13px 16px", fontSize:16, color:"#fff", fontFamily:"'JetBrains Mono',monospace", letterSpacing:2, marginBottom:error?8:20, transition:".2s", outline:"none" }}
                 onFocus={e=>e.target.style.borderColor="rgba(22,163,74,.6)"} onBlur={e=>e.target.style.borderColor=error?"#f87171":"rgba(255,255,255,.15)"}
               />
@@ -293,11 +176,11 @@ function LoginScreen({ onLogin }) {
 
               <button className="btn-primary" onClick={handleIdSubmit}
                 style={{ width:"100%", background:G.accent, border:"none", borderRadius:10, padding:"14px", fontSize:15, fontWeight:700, color:"#fff", cursor:"pointer", transition:".2s", boxShadow:"0 4px 16px rgba(22,163,74,.35)" }}>
-                Send OTP →
+                Login →
               </button>
 
               <div style={{ textAlign:"center", marginTop:18, fontSize:12, color:"rgba(255,255,255,.25)" }}>
-                Demo: try <span style={{ fontFamily:"'JetBrains Mono',monospace", color:"rgba(22,163,74,.7)" }}>IQ-KRM-0001</span> or <span style={{ fontFamily:"'JetBrains Mono',monospace", color:"rgba(22,163,74,.7)" }}>IQ-KRM-0002</span>
+                Use the Member ID or phone number given by your gym
               </div>
             </div>
           )}
@@ -306,46 +189,7 @@ function LoginScreen({ onLogin }) {
           {step === "loading" && (
             <div style={{ textAlign:"center", padding:"20px 0" }}>
               <div style={{ width:48, height:48, border:"3px solid rgba(255,255,255,.1)", borderTop:`3px solid ${G.accent}`, borderRadius:"50%", animation:"spin .7s linear infinite", margin:"0 auto 16px" }}/>
-              <div style={{ fontSize:16, color:"rgba(255,255,255,.7)", fontWeight:600 }}>Just a moment...</div>
-            </div>
-          )}
-
-          {/* STEP: OTP */}
-          {step === "otp" && (
-            <div className="fade-in">
-              <div style={{ fontSize:18, fontWeight:700, color:"#fff", marginBottom:4 }}>Check your phone 📱</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,.45)", marginBottom:6 }}>
-                OTP sent to <strong style={{ color:"rgba(255,255,255,.7)" }}>{foundMember?.phone}</strong>
-              </div>
-              <div style={{ fontSize:12, color:"rgba(22,163,74,.8)", marginBottom:24, fontWeight:600 }}>Demo OTP: 1 2 3 4 (+ any digit)</div>
-
-              {/* OTP boxes */}
-              <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:error?10:24 }}>
-                {otp.map((v,i) => (
-                  <input key={i} ref={el => otpRefs.current[i]=el}
-                    className="otp-input"
-                    value={v} onChange={e => handleOtpChange(i, e.target.value)}
-                    onKeyDown={e => handleOtpKey(i,e)}
-                    maxLength={1} inputMode="numeric"
-                    style={{ width:52, height:58, textAlign:"center", fontSize:24, fontWeight:700, fontFamily:"'JetBrains Mono',monospace", background:"rgba(255,255,255,.1)", border:`2px solid ${v?"rgba(22,163,74,.5)":"rgba(255,255,255,.15)"}`, borderRadius:10, color:"#fff", outline:"none", transition:".15s" }}
-                  />
-                ))}
-              </div>
-              {error && <div style={{ fontSize:12, color:"#f87171", marginBottom:12, textAlign:"center" }}>⚠ {error}</div>}
-
-              <button className="btn-primary" onClick={handleOtpSubmit}
-                style={{ width:"100%", background:G.accent, border:"none", borderRadius:10, padding:"14px", fontSize:15, fontWeight:700, color:"#fff", cursor:"pointer", transition:".2s", boxShadow:"0 4px 16px rgba(22,163,74,.35)", marginBottom:14 }}>
-                Verify & Login →
-              </button>
-
-              <div style={{ textAlign:"center", fontSize:12, color:"rgba(255,255,255,.3)" }}>
-                {resend > 0
-                  ? `Resend OTP in ${resend}s`
-                  : <span style={{ color:"rgba(22,163,74,.7)", cursor:"pointer", fontWeight:600 }} onClick={() => { setResend(30); setOtp(["","","","",""]); }}>Resend OTP</span>
-                }
-                <span style={{ margin:"0 10px", opacity:.3 }}>·</span>
-                <span style={{ cursor:"pointer", color:"rgba(255,255,255,.3)" }} onClick={() => { setStep("id"); setOtp(["","","","",""]); setError(""); }}>Change ID</span>
-              </div>
+              <div style={{ fontSize:16, color:"rgba(255,255,255,.7)", fontWeight:600 }}>Welcome, {foundMember?.name}...</div>
             </div>
           )}
         </div>

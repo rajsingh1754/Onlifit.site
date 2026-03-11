@@ -116,13 +116,6 @@ function useIsMobile() {
   return mob;
 }
 
-// ─── DEMO ACCOUNTS (offline fallback) ─────────────────────────────────────────
-const GYM_ACCOUNTS = [
-  {gym_id:'GYM-001',user_id:'usr_a1b2c3d4',email:'raj@onlifit.com',    password:'Onlifit@2025',name:'Rajesh Kumar', gymName:'Onlifit',  city:'Bangalore', role:'gym_owner', isNew:false},
-  {gym_id:'GYM-002',user_id:'usr_b2c3d4e5',email:'suresh@pzone.com',  password:'PowerZ@001', name:'Suresh Nair',  gymName:'PowerZone Gym',   city:'Chennai',   role:'gym_owner', isNew:false},
-  {gym_id:'GYM-NEW',user_id:'usr_new00001',email:'demo@newgym.com',   password:'NewGym@001', name:'Aryan Mehta',  gymName:'FitZone Pro',     city:'Pune',      role:'gym_owner', isNew:true},
-];
-
 // ─── SUPABASE HELPERS ─────────────────────────────────────────────────────────
 async function supaLogin(email, password) {
   try {
@@ -761,17 +754,13 @@ function GymLogin({ onLogin }) {
   const [showP,setShowP] = useState(false);
   const [err,setErr]     = useState('');
   const [busy,setBusy]   = useState(false);
-  const [showDemo,setShowDemo] = useState(false);
 
   const submit = async () => {
     if(!email.trim()||!pass.trim()){setErr('Both fields are required.');return;}
     setBusy(true);setErr('');
-    // Try Supabase first, fall back to hardcoded accounts
     const dbAcct = await supaLogin(email, pass);
     if (dbAcct) { onLogin(dbAcct); return; }
-    const acct = GYM_ACCOUNTS.find(a=>a.email.toLowerCase()===email.trim().toLowerCase()&&a.password===pass);
-    if(acct) onLogin(acct);
-    else{setErr('Invalid email or password.');setBusy(false);}
+    setErr('Invalid email or password.');setBusy(false);
   };
 
   return (
@@ -797,24 +786,6 @@ function GymLogin({ onLogin }) {
           {err&&<div style={{fontSize:12,color:'#dc2626',marginBottom:14,display:'flex',alignItems:'center',gap:5}}>⚠ {err}</div>}
           <Btn variant="primary" style={{width:'100%',padding:'11px',fontSize:14,fontWeight:700}} onClick={submit} disabled={busy}>{busy?'Signing in...':'Sign in to Dashboard →'}</Btn>
           <div style={{textAlign:'center',marginTop:14,fontSize:11,color:G.text3}}>Forgot password? Contact <span style={{color:G.accent,cursor:'pointer',fontWeight:600}}>support@onlifit.app</span></div>
-        </div>
-        <div style={{...s.card(14),marginTop:14}}>
-          <div style={{...s.flex(0),justifyContent:'space-between',marginBottom:showDemo?12:0}}>
-            <div style={{fontSize:11,fontWeight:600,color:G.text3}}>🧪 Demo accounts</div>
-            <button onClick={()=>setShowDemo(v=>!v)} style={{background:'none',border:'none',fontSize:11,color:G.accent,cursor:'pointer',fontWeight:600}}>{showDemo?'Hide':'Show'}</button>
-          </div>
-          {showDemo&&<div style={s.col(8)}>
-            {GYM_ACCOUNTS.map(a=>(
-              <div key={a.gym_id} style={{background:G.bg3,border:`1px solid ${G.border2}`,borderRadius:7,padding:'9px 12px'}}>
-                <div style={{...s.flex(0),justifyContent:'space-between',marginBottom:3}}>
-                  <span style={{fontSize:12,fontWeight:700,color:G.navy}}>{a.gymName}</span>
-                  <Badge bright>{a.isNew?'🆕 New Gym':a.gym_id}</Badge>
-                </div>
-                <div style={{fontSize:11,color:G.text3,...s.mono}}>{a.email} / {a.password}</div>
-                <Btn variant="ghost" size="xs" style={{marginTop:6}} onClick={()=>{setEmail(a.email);setPass(a.password);}}>Use credentials</Btn>
-              </div>
-            ))}
-          </div>}
         </div>
       </div>
     </div>
@@ -3612,7 +3583,7 @@ export default function App() {
     setShowOnboarding(false);
   };
 
-  const gymCtxValue = { members, setMembers, attendance, addAttendance, staff, setStaff, trainers, setTrainers, enquiries, setEnquiries, gymProfile, setGymProfile, gymSettings, setGymSettings, gymUser:gymUser||GYM_ACCOUNTS[0], handleLogout };
+  const gymCtxValue = { members, setMembers, attendance, addAttendance, staff, setStaff, trainers, setTrainers, enquiries, setEnquiries, gymProfile, setGymProfile, gymSettings, setGymSettings, gymUser, handleLogout };
 
   const handleOnboardComplete = async ({ profile, members: newMembers, staff: newStaff }) => {
     if(newMembers.length) setMembersState(newMembers);

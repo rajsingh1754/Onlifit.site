@@ -265,7 +265,7 @@ function Modal({open,onClose,title,children,width=550}){
     </div>
   );
 }
-function MFooter({onCancel,onSave,saveLabel='Save'}){return <div style={{...s.flex(10),marginTop:6}}><Btn variant="ghost" style={{flex:1}} onClick={onCancel}>Cancel</Btn><Btn variant="primary" style={{flex:2}} onClick={onSave}>{saveLabel}</Btn></div>;}
+function MFooter({onCancel,onSave,saveLabel='Save',saving}){return <div style={{...s.flex(10),marginTop:6}}><Btn variant="ghost" style={{flex:1}} onClick={onCancel} disabled={saving}>Cancel</Btn><Btn variant="primary" style={{flex:2,opacity:saving?.6:1}} onClick={onSave} disabled={saving}>{saving?'Saving…':saveLabel}</Btn></div>;}
 function Toast({msg,onDone}){useEffect(()=>{const t=setTimeout(onDone,3200);return()=>clearTimeout(t);},[]);return <div className="mob-toast" style={{position:'fixed',bottom:24,right:24,background:G.navy,borderRadius:10,padding:'12px 18px',fontSize:13,color:'#fff',zIndex:999,maxWidth:340,boxShadow:'0 8px 32px rgba(15,23,42,.25)',animation:'toastIn .25s ease',display:'flex',alignItems:'center',gap:8}}><span style={{fontSize:16}}>✓</span>{msg}</div>;}
 
 function LiveTicker({ attendance }) {
@@ -1350,6 +1350,7 @@ function PageMembers({ toast }) {
   const [showQR,setShowQR] = useState(null);
   const [form,setForm] = useState({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'Vikram Singh',coupon:''});
   const [editForm,setEditForm] = useState({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'',status:'Active'});
+  const [saving,setSaving] = useState(false);
   const portalBase = `https://members.onlifit.app/?gym=${gymUser.gym_id}`;
 
   const filterTabs = [
@@ -1362,6 +1363,7 @@ function PageMembers({ toast }) {
 
   const saveNewMember = async () => {
     if(!form.name.trim()){toast('Name is required');return;}
+    setSaving(true);
     const prefix = gymUser.gym_id.replace('GYM-','').replace('-','').slice(0,3).toUpperCase()||'GYM';
     const id = `IQ-${prefix}-${String(members.length+1).padStart(4,'0')}`;
     const init = form.name.trim().split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
@@ -1383,6 +1385,7 @@ function PageMembers({ toast }) {
       status: 'Active', trainer: memberData.trainer, visits: 0,
     });
     if (error) toast('⚠️ Supabase save failed – data saved locally');
+    setSaving(false);
   };
 
   const openEdit = (m) => {
@@ -1392,6 +1395,7 @@ function PageMembers({ toast }) {
 
   const saveEditMember = async () => {
     if(!editForm.name.trim()){toast('Name is required');return;}
+    setSaving(true);
     const updated = {...showEdit,...editForm,init:editForm.name.trim().split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()};
     setMembers(prev=>prev.map(m=>m.id===showEdit.id?updated:m));
     setShowEdit(null);
@@ -1401,6 +1405,7 @@ function PageMembers({ toast }) {
       dob:editForm.dob, plan:editForm.plan, trainer:editForm.trainer, status:editForm.status,
     }).eq('id',showEdit.id);
     if (error) toast('⚠️ Supabase update failed – updated locally');
+    setSaving(false);
   };
 
   return (
@@ -1417,7 +1422,13 @@ function PageMembers({ toast }) {
           <div class="tbl-wrap"><table style={{width:'100%',borderCollapse:'collapse'}}>
             <Th cols={['Member','ID','Plan','Start','Expiry','Status','Trainer','Today','Actions']}/>
             <tbody>
-              {list.map(m=>{
+              {list.length===0 ? (
+                <tr><td colSpan="9" style={{textAlign:'center',padding:'40px 20px'}}>
+                  <div style={{fontSize:36,marginBottom:8}}>👥</div>
+                  <div style={{fontSize:14,fontWeight:600,color:G.navy}}>No members found</div>
+                  <div style={{fontSize:12,color:G.text3,marginTop:4}}>Click "+ Add Member" to get started</div>
+                </td></tr>
+              ) : list.map(m=>{
                 const checkedInToday = attendance.find(a=>a.memberId===m.id&&a.date==='Today');
                 return (
                   <tr key={m.id} className="row-hover" style={{borderBottom:`1px solid ${G.border}`,transition:'.12s'}}>
@@ -1438,7 +1449,7 @@ function PageMembers({ toast }) {
                     </td>
                   </tr>
                 );
-              })}
+               })}
             </tbody>
 </table></div>
         </div>
@@ -1457,7 +1468,7 @@ function PageMembers({ toast }) {
           <div style={{fontSize:11,fontWeight:700,color:'#64748b',marginBottom:6}}>📱 Portal link to share with member:</div>
           <div style={{...s.mono,fontSize:11,color:'#4ade80',wordBreak:'break-all'}}>{portalBase}&member=IQ-KRM-{String(members.length+1).padStart(4,'0')}</div>
         </div>
-        <MFooter onCancel={()=>setShowAdd(false)} onSave={saveNewMember} saveLabel="✓ Save & Send Welcome"/>
+        <MFooter onCancel={()=>setShowAdd(false)} onSave={saveNewMember} saveLabel="✓ Save & Send Welcome" saving={saving}/>
       </Modal>
 
       {/* Share Portal Modal */}
@@ -1492,7 +1503,7 @@ function PageMembers({ toast }) {
           <div className="rg-2"><FG label="Email"><Fi value={editForm.email} onChange={e=>setEditForm({...editForm,email:e.target.value})}/></FG><FG label="Date of Birth"><Fi type="date" value={editForm.dob} onChange={e=>setEditForm({...editForm,dob:e.target.value})}/></FG></div>
           <div className="rg-2"><FG label="Membership Plan"><Fs value={editForm.plan} onChange={e=>setEditForm({...editForm,plan:e.target.value})}><option>Monthly</option><option>Quarterly</option><option>Yearly</option></Fs></FG><FG label="Assign Trainer"><Fi value={editForm.trainer} onChange={e=>setEditForm({...editForm,trainer:e.target.value})}/></FG></div>
           <div className="rg-2"><FG label="Status"><Fs value={editForm.status} onChange={e=>setEditForm({...editForm,status:e.target.value})}><option>Active</option><option>Expired</option><option>Frozen</option></Fs></FG><FG label="Member ID"><Fi value={showEdit.id} disabled style={{opacity:.6}}/></FG></div>
-          <MFooter onCancel={()=>setShowEdit(null)} onSave={saveEditMember} saveLabel="✓ Save Changes"/>
+          <MFooter onCancel={()=>setShowEdit(null)} onSave={saveEditMember} saveLabel="✓ Save Changes" saving={saving}/>
         </div>}
       </Modal>
 

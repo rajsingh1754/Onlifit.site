@@ -18,13 +18,9 @@ VALUES ('saranshandotra07@gmail.com', 'Saransh Andotra')
 ON CONFLICT (email) DO NOTHING;
 
 -- ── RLS ───────────────────────────────────────────────────────────────────────
-ALTER TABLE platform_admins ENABLE ROW LEVEL SECURITY;
-
--- Platform admins can read the admins table (to verify their own access)
+-- platform_admins is a small lookup table — disable RLS so the app can verify access
+ALTER TABLE platform_admins DISABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Admins can view platform_admins" ON platform_admins;
-CREATE POLICY "Admins can view platform_admins"
-  ON platform_admins FOR SELECT
-  USING (lower(email) = lower((SELECT email FROM auth.users WHERE id = auth.uid())));
 
 -- ── PLATFORM ADMIN ACCESS TO ALL GYM DATA ────────────────────────────────────
 -- These policies let platform admins see ALL rows in gym_accounts

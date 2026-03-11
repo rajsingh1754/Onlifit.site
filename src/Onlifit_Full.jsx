@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import jsQR from "jsqr";
 import { QRCodeCanvas } from "qrcode.react";
+import { jsPDF } from "jspdf";
 import { supabase } from "./supabase";
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
@@ -151,6 +152,28 @@ async function supaLogout() {
   await supabase.auth.signOut();
 }
 
+// Auto-detect member expiry status based on expiry date
+function checkExpiryStatus(expiryStr, currentStatus) {
+  if (!expiryStr || currentStatus === 'Frozen') return currentStatus;
+  const now = new Date();
+  // Parse dates like "Dec 31", "Apr 30", "Mar 10" — assume current year, adjust if needed
+  const exp = new Date(expiryStr + ', ' + now.getFullYear());
+  if (isNaN(exp.getTime())) return currentStatus;
+  // If expiry is in the past and >6 months ago, try next year (handles Jan viewing Dec expiry)
+  if (exp < now && (now - exp) > 180 * 86400000) exp.setFullYear(exp.getFullYear() + 1);
+  if (exp < now) return 'Expired';
+  return 'Active';
+}
+
+function daysUntilExpiry(expiryStr) {
+  if (!expiryStr) return Infinity;
+  const now = new Date();
+  const exp = new Date(expiryStr + ', ' + now.getFullYear());
+  if (isNaN(exp.getTime())) return Infinity;
+  if (exp < now && (now - exp) > 180 * 86400000) exp.setFullYear(exp.getFullYear() + 1);
+  return Math.ceil((exp - now) / 86400000);
+}
+
 async function supaLoadGymData(gymId) {
   const [mRes, aRes, sRes, tRes, pRes, payRes, profRes] = await Promise.all([
     supabase.from('members').select('*').eq('gym_id', gymId),
@@ -161,7 +184,7 @@ async function supaLoadGymData(gymId) {
     supabase.from('payments').select('*').eq('gym_id', gymId).order('created_at', { ascending: false }),
     supabase.from('gym_profiles').select('*').eq('gym_id', gymId).single(),
   ]);
-  const mapMember = r => ({ name:r.name, init:r.initials, id:r.id, phone:r.phone, email:r.email, plan:r.plan, start:r.start_date, expiry:r.expiry_date, status:r.status, trainer:r.trainer, visits:r.visits, dob:r.dob });
+  const mapMember = r => { const status = checkExpiryStatus(r.expiry_date, r.status); return { name:r.name, init:r.initials, id:r.id, phone:r.phone, email:r.email, plan:r.plan, start:r.start_date, expiry:r.expiry_date, status, trainer:r.trainer, visits:r.visits, dob:r.dob }; };
   const mapAttendance = r => ({ id:r.id, memberId:r.member_id, memberName:r.member_name, init:r.initials, checkIn:r.check_in, date:r.date, trainer:r.trainer, method:r.method, status:r.status });
   const mapStaff = r => ({ name:r.name, init:r.initials, id:r.id, role:r.role, branch:r.branch, members:r.members_count, present:r.present, salary:r.salary, phone:r.phone, email:r.email, joined:r.joined, qr:r.qr });
   const mapTrainer = r => ({ name:r.name, init:r.initials, id:r.id, specialization:r.specialization, experience:r.experience, members:r.members||[], sessions:r.sessions, rating:r.rating, commission:r.commission, revenue:r.revenue, certifications:r.certifications, qr:r.qr });
@@ -1353,13 +1376,15 @@ function PageMembers({ toast }) {
   const [saving,setSaving] = useState(false);
   const portalBase = `https://members.onlifit.app/?gym=${gymUser.gym_id}`;
 
+  const expiringSoon = members.filter(m=>m.status==='Active' && daysUntilExpiry(m.expiry)<=7 && daysUntilExpiry(m.expiry)>=0);
   const filterTabs = [
     {id:'all',     label:`All (${members.length})`},
     {id:'Active',  label:`Active (${members.filter(m=>m.status==='Active').length})`},
+    {id:'expiring',label:`⚠️ Expiring (${expiringSoon.length})`},
     {id:'Expired', label:`Expired (${members.filter(m=>m.status==='Expired').length})`},
     {id:'Frozen',  label:`Frozen (${members.filter(m=>m.status==='Frozen').length})`},
   ];
-  const list = filter==='all' ? members : members.filter(m=>m.status===filter);
+  const list = filter==='all' ? members : filter==='expiring' ? expiringSoon : members.filter(m=>m.status===filter);
 
   const saveNewMember = async () => {
     if(!form.name.trim()){toast('Name is required');return;}
@@ -1430,13 +1455,15 @@ function PageMembers({ toast }) {
                 </td></tr>
               ) : list.map(m=>{
                 const checkedInToday = attendance.find(a=>a.memberId===m.id&&a.date==='Today');
+                const dExp = daysUntilExpiry(m.expiry);
+                const expiryWarn = m.status==='Active' && dExp<=7 && dExp>=0;
                 return (
                   <tr key={m.id} className="row-hover" style={{borderBottom:`1px solid ${G.border}`,transition:'.12s'}}>
                     <td style={{padding:'11px 13px'}}><div style={s.flex(9)}><Mav init={m.init}/><div><div style={{fontSize:13,fontWeight:600,color:G.navy}}>{m.name}</div><div style={{fontSize:10,color:G.text3}}>{m.phone||'--'}</div></div></div></td>
                     <td style={{padding:'11px 13px',...s.mono,fontSize:11,color:G.text3}}>{m.id}</td>
                     <td style={{padding:'11px 13px'}}><PBadge p={m.plan}/></td>
                     <td style={{padding:'11px 13px',fontSize:12,color:G.text2}}>{m.start}</td>
-                    <td style={{padding:'11px 13px',fontSize:12,color:G.text2}}>{m.expiry}</td>
+                    <td style={{padding:'11px 13px',fontSize:12,color:expiryWarn?'#dc2626':G.text2,fontWeight:expiryWarn?600:400}}>{m.expiry}{expiryWarn&&<span style={{fontSize:9,marginLeft:4}}>⚠️ {dExp}d</span>}</td>
                     <td style={{padding:'11px 13px'}}><SBadge s={m.status}/></td>
                     <td style={{padding:'11px 13px',fontSize:12,color:G.text2}}>{m.trainer}</td>
                     <td style={{padding:'11px 13px'}}>{checkedInToday?<Badge bright><LiveDot/>{checkedInToday.status==='inside'?'Inside':'Was in'}</Badge>:<span style={{fontSize:11,color:G.text3}}>--</span>}</td>
@@ -1445,6 +1472,7 @@ function PageMembers({ toast }) {
                         <Btn variant="ghost" size="xs" onClick={()=>openEdit(m)}>Edit</Btn>
                         <Btn variant="ghost" size="xs" onClick={()=>setShowQR(m)}>QR</Btn>
                         <Btn variant="ghost" size="xs" style={{color:G.accent,borderColor:G.border2}} onClick={()=>setShowPortal(m)}>📱</Btn>
+                        <Btn variant="ghost" size="xs" onClick={()=>{const msg=expiryWarn?`Hi ${m.name}, your ${gymUser.gymName} membership expires in ${dExp} day(s) on ${m.expiry}. Please renew to continue.`:`Hi ${m.name}, welcome to ${gymUser.gymName}! Your member ID: ${m.id}`;window.open(`https://wa.me/${(m.phone||'').replace(/[^0-9]/g,'')}?text=${encodeURIComponent(msg)}`,'_blank')}}>💬</Btn>
                       </div>
                     </td>
                   </tr>
@@ -1923,26 +1951,171 @@ function PageRevenue({ toast }) {
 }
 
 function PageFees({ toast }) {
+  const { members, gymUser, gymProfile } = useGym();
   const [planVal,setPlanVal]=useState('14000');
   const [coupon,setCoupon]=useState('');
   const [couponMsg,setCouponMsg]=useState(null);
-  const base=parseInt(planVal)||14000,gst=Math.round(base*18/118),baseEx=base-gst;
+  const [search,setSearch]=useState('');
+  const [selectedMember,setSelectedMember]=useState(null);
+  const [payMode,setPayMode]=useState('UPI / Razorpay');
+  const [amount,setAmount]=useState('');
+  const [paying,setPaying]=useState(false);
+  const [payments,setPayments]=useState([]);
+
+  // Load payment history
+  useEffect(()=>{
+    if(!gymUser) return;
+    supabase.from('payments').select('*').eq('gym_id',gymUser.gym_id).order('created_at',{ascending:false}).limit(20).then(({data})=>{
+      if(data) setPayments(data);
+    });
+  },[gymUser]);
+
+  const base=parseInt(amount)||parseInt(planVal)||14000,gst=Math.round(base*18/118),baseEx=base-gst;
   const cc=VALID_COUPONS[coupon.toUpperCase()];
   const disc=cc?(cc.type==='pct'?Math.round(baseEx*cc.val/100):Math.min(cc.val,base)):0;
   const total=base-disc;
   const handleCoupon=v=>{setCoupon(v);const vc=VALID_COUPONS[v.toUpperCase()];if(!v)setCouponMsg(null);else if(vc)setCouponMsg({ok:true,msg:`✓ ${vc.type==='pct'?vc.val+'% off':'₹'+vc.val+' off'} applied!`});else setCouponMsg({ok:false,msg:'Invalid coupon code'});};
+  const planName = {1500:'Monthly',4000:'Quarterly',14000:'Yearly'}[planVal]||'Yearly';
+  const invNo = `INV-${new Date().getFullYear()}-${String(payments.length+1).padStart(4,'0')}`;
+  const today = new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'});
+
+  const searchResults = search.length>=2 ? members.filter(m=>m.name.toLowerCase().includes(search.toLowerCase())||m.id.toLowerCase().includes(search.toLowerCase())).slice(0,5) : [];
+
+  const generatePDF = (paymentData) => {
+    const doc = new jsPDF();
+    const gName = gymProfile.gymName || gymUser.gymName || 'Onlifit Gym';
+    // Header
+    doc.setFontSize(22); doc.setFont('helvetica','bold'); doc.setTextColor(22,163,74); doc.text(gName,20,25);
+    doc.setFontSize(9); doc.setTextColor(100); doc.text('Tax Invoice',20,32);
+    doc.setFontSize(10); doc.setTextColor(60); doc.text(invNo,190,25,{align:'right'}); doc.text(today,190,32,{align:'right'});
+    // Gym details
+    doc.setDrawColor(200); doc.line(20,37,190,37);
+    let y = 45;
+    if(gymProfile.address) { doc.setFontSize(9); doc.text(gymProfile.address,20,y); y+=5; }
+    if(gymProfile.gstin) { doc.text(`GSTIN: ${gymProfile.gstin}`,20,y); y+=5; }
+    if(gymProfile.phone) { doc.text(`Phone: ${gymProfile.phone}`,20,y); y+=5; }
+    // Member details
+    y += 5; doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42); doc.text('Bill To:',20,y); y+=7;
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(60);
+    doc.text(paymentData.memberName || 'Walk-in',20,y); y+=5;
+    if(paymentData.memberId) { doc.text(`ID: ${paymentData.memberId}`,20,y); y+=5; }
+    // Line items
+    y += 8; doc.setDrawColor(200); doc.line(20,y,190,y); y+=8;
+    const items = [['Plan',planName],['Base Amount',`Rs ${baseEx.toLocaleString()}`],['GST (18%)',`Rs ${gst.toLocaleString()}`]];
+    if(disc>0) items.push(['Discount',`- Rs ${disc.toLocaleString()}`]);
+    items.push(['Total',`Rs ${total.toLocaleString()}`]);
+    items.forEach(([k,v],i)=>{
+      const isTotal = i===items.length-1;
+      doc.setFont('helvetica',isTotal?'bold':'normal'); doc.setFontSize(isTotal?12:10);
+      doc.setTextColor(isTotal?22:60,isTotal?163:60,isTotal?74:60);
+      doc.text(k,20,y); doc.text(v,190,y,{align:'right'}); y+=7;
+      if(isTotal) { doc.setDrawColor(22,163,74); doc.line(20,y-9,190,y-9); }
+    });
+    // Payment mode
+    y+=5; doc.setFontSize(9); doc.setTextColor(100); doc.text(`Payment Mode: ${paymentData.mode}`,20,y);
+    y+=10; doc.setFontSize(8); doc.setTextColor(150); doc.text('Generated by Onlifit Gym Management',105,y,{align:'center'});
+    doc.save(`${invNo}.pdf`);
+  };
+
+  const handleRazorpay = () => {
+    const rzpKey = import.meta.env.VITE_RAZORPAY_KEY_ID;
+    if(!rzpKey) { toast('⚠️ Razorpay key not configured – add VITE_RAZORPAY_KEY_ID'); return; }
+    if(!selectedMember) { toast('Please select a member first'); return; }
+    setPaying(true);
+    const options = {
+      key: rzpKey, amount: total*100, currency:'INR', name: gymProfile.gymName||gymUser.gymName||'Onlifit',
+      description: `${planName} Membership - ${selectedMember.name}`,
+      handler: async (response) => {
+        await recordPayment('Razorpay', response.razorpay_payment_id);
+        setPaying(false);
+      },
+      prefill: { name:selectedMember.name, email:selectedMember.email||'', contact:selectedMember.phone||'' },
+      modal: { ondismiss: ()=>setPaying(false) },
+    };
+    try { const rzp = new window.Razorpay(options); rzp.open(); } catch { toast('⚠️ Razorpay SDK not loaded'); setPaying(false); }
+  };
+
+  const recordPayment = async (mode, txnId) => {
+    const paymentData = {
+      gym_id: gymUser.gym_id, member_id: selectedMember?.id||null, member_name: selectedMember?.name||'Walk-in',
+      invoice: invNo, plan: planName, amount: total, mode, date: today, status: 'Paid', txn_id: txnId||null,
+    };
+    const { error } = await supabase.from('payments').insert(paymentData);
+    if(error) toast('⚠️ Payment save failed locally');
+    else { setPayments(prev=>[paymentData,...prev]); toast(`✅ ₹${total.toLocaleString()} received from ${selectedMember?.name||'Walk-in'}`); }
+    generatePDF({memberName:selectedMember?.name, memberId:selectedMember?.id, mode});
+  };
+
+  const handleRecord = async () => {
+    if(payMode==='UPI / Razorpay') { handleRazorpay(); return; }
+    setPaying(true);
+    await recordPayment(payMode);
+    setPaying(false);
+  };
+
   return (
     <div className="page-anim">
       <div className="rg-4" style={{marginBottom:16}}>
-        <StatCard label="Today's Collection" value="₹18,240" icon="💰"/>
-        <StatCard label="This Month" value="187 payments" icon="✅"/>
-        <StatCard label="Overdue Members" value="47" dim icon="⚠️"/>
-        <StatCard label="EMI Pending" value="₹48K" dim icon="🔄"/>
+        <StatCard label="Today's Collection" value={`₹${payments.filter(p=>p.date===today).reduce((a,p)=>a+(p.amount||0),0).toLocaleString()}`} icon="💰"/>
+        <StatCard label="This Month" value={`${payments.length} payments`} icon="✅"/>
+        <StatCard label="Overdue Members" value={String(members.filter(m=>m.status==='Expired').length)} dim icon="⚠️"/>
+        <StatCard label="Avg. Ticket" value={payments.length?`₹${Math.round(payments.reduce((a,p)=>a+(p.amount||0),0)/payments.length).toLocaleString()}`:'--'} icon="🔄"/>
       </div>
       <div className="rg-2" style={{marginBottom:16}}>
-        <div style={s.card()}><SH title="Record Payment"/><FG label="Search Member"><Fi placeholder="Name or Member ID..."/></FG><div className="rg-2"><FG label="Amount (₹)"><Fi placeholder="0.00"/></FG><FG label="Mode"><Fs><option>UPI / Razorpay</option><option>Cash</option><option>Card</option><option>EMI</option></Fs></FG></div><div className="rg-2"><FG label="Plan"><Fs value={planVal} onChange={e=>setPlanVal(e.target.value)}><option value="1500">Monthly -- ₹1,500</option><option value="4000">Quarterly -- ₹4,000</option><option value="14000">Yearly -- ₹14,000</option></Fs></FG><FG label="Coupon"><Fi placeholder="e.g. IRON10" value={coupon} onChange={e=>handleCoupon(e.target.value)}/></FG></div>{couponMsg&&<div style={{fontSize:12,marginBottom:10,fontWeight:600,color:couponMsg.ok?G.accent:'#dc2626',padding:'7px 12px',borderRadius:7,background:couponMsg.ok?G.bg3:'#fef2f2',border:`1px solid ${couponMsg.ok?G.accentL:'#fecaca'}`}}>{couponMsg.msg}</div>}<Btn variant="primary" style={{width:'100%'}} onClick={()=>toast('Payment recorded! Invoice generated ✓')}>💳 Record & Generate Invoice</Btn></div>
-        <div style={s.card()}><SH title="Invoice Preview"/><div style={{background:G.bg3,border:`1px solid ${G.border2}`,borderRadius:9,padding:14}}><div style={{...s.flex(0),justifyContent:'space-between',marginBottom:12}}><div><div style={{fontSize:20,fontWeight:800,color:G.accent}}>Onlifit</div><div style={{fontSize:10,color:G.text3,fontWeight:600,textTransform:'uppercase'}}>Tax Invoice</div></div><div style={{textAlign:'right',fontSize:11,color:G.text3}}><div style={{...s.mono,color:G.navy,fontWeight:600}}>#INV-2025-0348</div><div>March 10, 2025</div></div></div>{[['Plan',{1500:'Monthly',4000:'Quarterly',14000:'Yearly'}[planVal]||'Yearly'],['Base Amount',`₹${baseEx.toLocaleString()}`],['GST (18%)',`₹${gst.toLocaleString()}`]].map(([k,v])=><div key={k} style={{...s.flex(0),justifyContent:'space-between',padding:'7px 0',borderBottom:`1px solid ${G.border}`,fontSize:13}}><span style={{color:G.text2}}>{k}</span><span style={{fontWeight:600,color:G.navy}}>{v}</span></div>)}{disc>0&&<div style={{...s.flex(0),justifyContent:'space-between',padding:'7px 0',borderBottom:`1px solid ${G.border}`,fontSize:13}}><span style={{color:G.text2}}>Discount</span><span style={{color:G.accent,fontWeight:700}}>−₹{disc.toLocaleString()}</span></div>}<div style={{...s.flex(0),justifyContent:'space-between',padding:'10px 0 0',fontWeight:800,fontSize:15,color:G.accent,borderTop:`2px solid ${G.border}`,marginTop:4}}><span>Total</span><span>₹{total.toLocaleString()}</span></div><Btn variant="ghost" style={{width:'100%',marginTop:10,fontSize:12}} onClick={()=>toast('Invoice downloaded ✓')}>↓ Download PDF</Btn></div></div>
+        <div style={s.card()}>
+          <SH title="Record Payment"/>
+          <FG label="Search Member">
+            <Fi placeholder="Name or Member ID..." value={search} onChange={e=>{setSearch(e.target.value);setSelectedMember(null)}}/>
+            {searchResults.length>0&&!selectedMember&&<div style={{border:`1px solid ${G.border}`,borderRadius:8,marginTop:4,maxHeight:160,overflowY:'auto',background:'#fff'}}>
+              {searchResults.map(m=><div key={m.id} onClick={()=>{setSelectedMember(m);setSearch(m.name)}} style={{padding:'8px 12px',cursor:'pointer',borderBottom:`1px solid ${G.border}`,fontSize:13}} className="row-hover"><span style={{fontWeight:600,color:G.navy}}>{m.name}</span> <span style={{fontSize:11,color:G.text3}}>{m.id}</span></div>)}
+            </div>}
+            {selectedMember&&<div style={{marginTop:6,padding:'6px 10px',background:G.bg3,borderRadius:6,fontSize:12,color:G.accent,fontWeight:600}}>✓ {selectedMember.name} ({selectedMember.id})</div>}
+          </FG>
+          <div className="rg-2">
+            <FG label="Amount (₹)"><Fi placeholder={planVal} value={amount} onChange={e=>setAmount(e.target.value)}/></FG>
+            <FG label="Mode"><Fs value={payMode} onChange={e=>setPayMode(e.target.value)}><option>UPI / Razorpay</option><option>Cash</option><option>Card</option><option>EMI</option></Fs></FG>
+          </div>
+          <div className="rg-2">
+            <FG label="Plan"><Fs value={planVal} onChange={e=>setPlanVal(e.target.value)}><option value="1500">Monthly -- ₹1,500</option><option value="4000">Quarterly -- ₹4,000</option><option value="14000">Yearly -- ₹14,000</option></Fs></FG>
+            <FG label="Coupon"><Fi placeholder="e.g. IRON10" value={coupon} onChange={e=>handleCoupon(e.target.value)}/></FG>
+          </div>
+          {couponMsg&&<div style={{fontSize:12,marginBottom:10,fontWeight:600,color:couponMsg.ok?G.accent:'#dc2626',padding:'7px 12px',borderRadius:7,background:couponMsg.ok?G.bg3:'#fef2f2',border:`1px solid ${couponMsg.ok?G.accentL:'#fecaca'}`}}>{couponMsg.msg}</div>}
+          <Btn variant="primary" style={{width:'100%',opacity:paying?.6:1}} onClick={handleRecord} disabled={paying}>{paying?'Processing…':'💳 Record & Generate Invoice'}</Btn>
+        </div>
+        <div style={s.card()}>
+          <SH title="Invoice Preview"/>
+          <div style={{background:G.bg3,border:`1px solid ${G.border2}`,borderRadius:9,padding:14}}>
+            <div style={{...s.flex(0),justifyContent:'space-between',marginBottom:12}}>
+              <div><div style={{fontSize:20,fontWeight:800,color:G.accent}}>{gymProfile.gymName||gymUser.gymName||'Onlifit'}</div><div style={{fontSize:10,color:G.text3,fontWeight:600,textTransform:'uppercase'}}>Tax Invoice</div></div>
+              <div style={{textAlign:'right',fontSize:11,color:G.text3}}><div style={{...s.mono,color:G.navy,fontWeight:600}}>#{invNo}</div><div>{today}</div></div>
+            </div>
+            {selectedMember&&<div style={{fontSize:12,color:G.text2,marginBottom:10,padding:'6px 0',borderBottom:`1px solid ${G.border}`}}>Bill to: <span style={{fontWeight:600,color:G.navy}}>{selectedMember.name}</span> ({selectedMember.id})</div>}
+            {[['Plan',planName],['Base Amount',`₹${baseEx.toLocaleString()}`],['GST (18%)',`₹${gst.toLocaleString()}`]].map(([k,v])=><div key={k} style={{...s.flex(0),justifyContent:'space-between',padding:'7px 0',borderBottom:`1px solid ${G.border}`,fontSize:13}}><span style={{color:G.text2}}>{k}</span><span style={{fontWeight:600,color:G.navy}}>{v}</span></div>)}
+            {disc>0&&<div style={{...s.flex(0),justifyContent:'space-between',padding:'7px 0',borderBottom:`1px solid ${G.border}`,fontSize:13}}><span style={{color:G.text2}}>Discount</span><span style={{color:G.accent,fontWeight:700}}>−₹{disc.toLocaleString()}</span></div>}
+            <div style={{...s.flex(0),justifyContent:'space-between',padding:'10px 0 0',fontWeight:800,fontSize:15,color:G.accent,borderTop:`2px solid ${G.border}`,marginTop:4}}><span>Total</span><span>₹{total.toLocaleString()}</span></div>
+            <Btn variant="ghost" style={{width:'100%',marginTop:10,fontSize:12}} onClick={()=>generatePDF({memberName:selectedMember?.name,memberId:selectedMember?.id,mode:payMode})}>↓ Download PDF</Btn>
+          </div>
+        </div>
       </div>
+
+      {/* Recent Payments */}
+      {payments.length>0&&<div style={s.card()}>
+        <SH title="Recent Payments" sub={`Last ${Math.min(payments.length,20)} transactions`}/>
+        <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}>
+          <Th cols={['Member','Invoice','Plan','Amount','Mode','Date','Status']}/>
+          <tbody>{payments.slice(0,10).map((p,i)=>(
+            <tr key={i} className="row-hover" style={{borderBottom:`1px solid ${G.border}`}}>
+              <td style={{padding:'9px 13px',fontSize:13,fontWeight:600,color:G.navy}}>{p.member_name||p.member||'--'}</td>
+              <td style={{padding:'9px 13px',...s.mono,fontSize:11,color:G.text3}}>{p.invoice||p.inv||'--'}</td>
+              <td style={{padding:'9px 13px',fontSize:12,color:G.text2}}>{p.plan}</td>
+              <td style={{padding:'9px 13px',fontSize:13,fontWeight:700,color:G.accent}}>₹{(p.amount||0).toLocaleString()}</td>
+              <td style={{padding:'9px 13px',fontSize:12,color:G.text2}}>{p.mode}</td>
+              <td style={{padding:'9px 13px',fontSize:12,color:G.text2}}>{p.date}</td>
+              <td style={{padding:'9px 13px'}}><SBadge s={p.status==='Paid'?'Active':'Expired'}/></td>
+            </tr>
+          ))}</tbody>
+        </table></div>
+      </div>}
     </div>
   );
 }

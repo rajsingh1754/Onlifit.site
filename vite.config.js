@@ -10,6 +10,7 @@ export default defineConfig({
           vendor: ['react', 'react-dom', 'react-router-dom'],
           supabase: ['@supabase/supabase-js'],
           qr: ['qrcode.react', 'jsqr'],
+          pdf: ['jspdf'],
         }
       }
     }

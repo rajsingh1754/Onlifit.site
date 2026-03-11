@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import jsQR from "jsqr";
 import { QRCodeCanvas } from "qrcode.react";
 import { jsPDF } from "jspdf";
@@ -172,6 +172,80 @@ function daysUntilExpiry(expiryStr) {
   if (isNaN(exp.getTime())) return Infinity;
   if (exp < now && (now - exp) > 180 * 86400000) exp.setFullYear(exp.getFullYear() + 1);
   return Math.ceil((exp - now) / 86400000);
+}
+
+// ── NOTIFICATION ENGINE ─────────────────────────────────────────────────────
+function isTodayBirthday(dobStr) {
+  if (!dobStr) return false;
+  const dob = new Date(dobStr);
+  if (isNaN(dob.getTime())) return false;
+  const now = new Date();
+  return dob.getMonth() === now.getMonth() && dob.getDate() === now.getDate();
+}
+
+function generateNotifications(members, attendance, payments) {
+  const notifs = [];
+  const now = new Date();
+  const todayKey = now.toISOString().slice(0, 10);
+  const thisYear = now.getFullYear();
+
+  // 1. Expiring within 7 days
+  members.filter(m => m.status === 'Active').forEach(m => {
+    const days = daysUntilExpiry(m.expiry);
+    if (days >= 0 && days <= 7) {
+      notifs.push({
+        id: `exp-${m.id}`, type: 'expiry', icon: '🔴',
+        title: days === 0 ? `${m.name} expires TODAY` : `${m.name} expires in ${days}d`,
+        sub: `${m.plan} · ${m.expiry}`, member: m, priority: days === 0 ? 0 : 1,
+        action: 'remind', actionLabel: '📲 Remind',
+        msg: days === 0
+          ? `Hi ${m.name}, your ${m.plan} membership expires today! Renew now to keep your streak going 💪`
+          : `Hi ${m.name}, your ${m.plan} membership expires in ${days} days (${m.expiry}). Renew early to avoid missing workouts! 🏋️`,
+      });
+    }
+  });
+
+  // 2. Today's birthdays
+  members.forEach(m => {
+    if (isTodayBirthday(m.dob)) {
+      notifs.push({
+        id: `bday-${m.id}`, type: 'birthday', icon: '🎂',
+        title: `${m.name}'s birthday today!`,
+        sub: `${m.plan} member`, member: m, priority: 2,
+        action: 'wish', actionLabel: '🎂 Wish',
+        msg: `Happy Birthday ${m.name}! 🎉🎂 Wishing you a fantastic year of health & fitness. Enjoy your special day! 🥳`,
+      });
+    }
+  });
+
+  // 3. Churn risk — absent 7+ days
+  members.filter(m => m.status === 'Active').forEach(m => {
+    const lastAtt = attendance.filter(a => a.memberId === m.id).sort((a, b) => (b.id || '').localeCompare(a.id || ''))[0];
+    const lastDate = lastAtt ? lastAtt.date : m.start;
+    const daysAgo = lastAtt && lastAtt.date === 'Today' ? 0 : Math.floor((Date.now() - new Date(lastDate + ', ' + thisYear).getTime()) / 86400000);
+    const gap = isNaN(daysAgo) || daysAgo < 0 ? 999 : daysAgo;
+    if (gap >= 7) {
+      notifs.push({
+        id: `churn-${m.id}`, type: 'churn', icon: '⚠️',
+        title: `${m.name} absent ${gap}d`,
+        sub: `Last: ${lastDate || 'never'} · ${m.plan}`, member: m, priority: gap >= 14 ? 1 : 3,
+        action: 'remind', actionLabel: '📲 Remind',
+        msg: `Hi ${m.name}, we miss you! It's been ${gap} days since your last visit. Come back strong! 💪`,
+      });
+    }
+  });
+
+  // 4. Pending payments
+  (payments || []).filter(p => p.status === 'Pending').forEach(p => {
+    notifs.push({
+      id: `pay-${p.id || p.invoice}`, type: 'payment', icon: '💰',
+      title: `${p.member_name} — pending ₹${p.amount}`,
+      sub: `${p.plan} · ${p.invoice || ''}`, priority: 2,
+      action: null,
+    });
+  });
+
+  return notifs.sort((a, b) => a.priority - b.priority);
 }
 
 async function supaLoadGymData(gymId) {
@@ -2803,6 +2877,85 @@ function PageSettings({ toast }) {
   );
 }
 
+// ─── NOTIFICATION CENTER ──────────────────────────────────────────────────────
+function NotificationCenter({ notifications, open, onClose, onDismiss, onDismissAll, gymName }) {
+  if (!open) return null;
+  const typeColors = { expiry: '#dc2626', birthday: '#f59e0b', churn: '#ea580c', payment: '#6366f1' };
+  const typeLabels = { expiry: 'Expiring', birthday: 'Birthday', churn: 'Churn Risk', payment: 'Pending' };
+
+  const sendWhatsApp = (n) => {
+    if (!n.member || !n.msg) return;
+    const phone = (n.member.phone || '').replace(/[^0-9]/g, '');
+    if (phone) window.open(`https://wa.me/${phone}?text=${encodeURIComponent(n.msg)}`, '_blank');
+  };
+
+  return (
+    <>
+      <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.25)',zIndex:9998}} onClick={onClose}/>
+      <div style={{position:'fixed',top:0,right:0,width:Math.min(380, window.innerWidth - 16),height:'100vh',background:G.bg,boxShadow:'-4px 0 24px rgba(0,0,0,.12)',zIndex:9999,display:'flex',flexDirection:'column',borderLeft:`1.5px solid ${G.border}`}}>
+        {/* Header */}
+        <div style={{padding:'16px 18px',borderBottom:`1.5px solid ${G.border}`,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div>
+            <div style={{fontSize:15,fontWeight:700,color:G.navy}}>🔔 Notifications</div>
+            <div style={{fontSize:11,color:G.text3,marginTop:2}}>{notifications.length} actionable items</div>
+          </div>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            {notifications.length > 0 && (
+              <button onClick={onDismissAll} style={{fontSize:11,fontWeight:600,color:G.accent,background:'none',border:'none',cursor:'pointer',padding:'4px 8px'}}>Clear all</button>
+            )}
+            <button onClick={onClose} style={{width:28,height:28,borderRadius:6,border:`1px solid ${G.border}`,background:G.bg2,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div style={{flex:1,overflowY:'auto',padding:'10px 14px'}}>
+          {notifications.length === 0 ? (
+            <div style={{textAlign:'center',padding:'48px 20px'}}>
+              <div style={{fontSize:40,marginBottom:12}}>🎉</div>
+              <div style={{fontSize:14,fontWeight:600,color:G.navy}}>All clear!</div>
+              <div style={{fontSize:12,color:G.text3,marginTop:4}}>No pending notifications right now</div>
+            </div>
+          ) : (
+            notifications.map(n => (
+              <div key={n.id} style={{background:G.bg3,border:`1px solid ${G.border2}`,borderRadius:10,padding:'12px 14px',marginBottom:8,transition:'.15s'}}>
+                <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
+                  <span style={{fontSize:18,flexShrink:0,lineHeight:1}}>{n.icon}</span>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:3}}>
+                      <span style={{fontSize:9,fontWeight:700,textTransform:'uppercase',letterSpacing:'.5px',color:typeColors[n.type],background:typeColors[n.type]+'18',padding:'2px 6px',borderRadius:4}}>{typeLabels[n.type]}</span>
+                    </div>
+                    <div style={{fontSize:13,fontWeight:600,color:G.navy}}>{n.title}</div>
+                    <div style={{fontSize:11,color:G.text3,marginTop:2}}>{n.sub}</div>
+                  </div>
+                  <button onClick={() => onDismiss(n.id)} style={{background:'none',border:'none',cursor:'pointer',fontSize:12,color:G.text3,padding:2,flexShrink:0}}>✕</button>
+                </div>
+                {n.action && (
+                  <div style={{marginTop:8,display:'flex',gap:6}}>
+                    <button onClick={() => sendWhatsApp(n)} style={{fontSize:11,fontWeight:600,color:'#fff',background:G.accent,border:'none',borderRadius:6,padding:'5px 12px',cursor:'pointer'}}>{n.actionLabel}</button>
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Footer summary */}
+        {notifications.length > 0 && (
+          <div style={{padding:'12px 18px',borderTop:`1px solid ${G.border}`,background:G.bg2}}>
+            <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
+              {Object.entries(notifications.reduce((acc, n) => { acc[n.type] = (acc[n.type] || 0) + 1; return acc; }, {})).map(([type, count]) => (
+                <span key={type} style={{fontSize:10,fontWeight:600,color:typeColors[type]}}>
+                  {typeLabels[type]}: {count}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 // ─── NAV CONFIG ───────────────────────────────────────────────────────────────
 const NAV = [
   {section:'Core',    items:[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'members',icon:'👥',label:'Members',badge:3},{id:'attendance',icon:'📅',label:'Attendance',badge:'Live'}]},
@@ -2922,6 +3075,47 @@ export default function App() {
   const [toastMsg, setToast] = useState(null);
   const showToast = msg => setToast(msg);
   const isMob = useIsMobile();
+
+  // ── NOTIFICATIONS STATE ──
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifDismissed, setNotifDismissed] = useState(() => {
+    try {
+      const key = `onlifit_notif_dismissed_${new Date().toISOString().slice(0,10)}`;
+      return JSON.parse(localStorage.getItem(key) || '[]');
+    } catch { return []; }
+  });
+  const [dashPayments, setDashPayments] = useState([]);
+
+  // Load payments for notifications
+  useEffect(() => {
+    if (!gymUser) return;
+    supabase.from('payments').select('*').eq('gym_id', gymUser.gym_id).then(({ data }) => {
+      if (data) setDashPayments(data);
+    });
+  }, [gymUser, dataLoaded]);
+
+  const allNotifs = useMemo(() => {
+    if (!dataLoaded) return [];
+    return generateNotifications(members, attendance, dashPayments);
+  }, [members, attendance, dashPayments, dataLoaded]);
+
+  const visibleNotifs = useMemo(() => allNotifs.filter(n => !notifDismissed.includes(n.id)), [allNotifs, notifDismissed]);
+
+  const dismissNotif = useCallback((id) => {
+    setNotifDismissed(prev => {
+      const next = [...prev, id];
+      const key = `onlifit_notif_dismissed_${new Date().toISOString().slice(0,10)}`;
+      localStorage.setItem(key, JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const dismissAllNotifs = useCallback(() => {
+    const ids = allNotifs.map(n => n.id);
+    setNotifDismissed(ids);
+    const key = `onlifit_notif_dismissed_${new Date().toISOString().slice(0,10)}`;
+    localStorage.setItem(key, JSON.stringify(ids));
+  }, [allNotifs]);
 
   const handleLogin = async (acct) => {
     setGymUser(acct);
@@ -3079,8 +3273,8 @@ export default function App() {
                   <LiveDot/><span style={{fontSize:11,fontWeight:700,color:G.accent}}>{insideCount}</span>
                 </div>
               )}
-              <div style={{width:30,height:30,borderRadius:7,background:G.bg2,border:`1px solid ${G.border}`,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',fontSize:13,position:'relative'}} onClick={()=>showToast('No new notifications')}>
-                🔔<div style={{position:'absolute',top:5,right:5,width:5,height:5,borderRadius:'50%',background:'#dc2626',border:'1.5px solid #fff'}}/>
+              <div style={{width:30,height:30,borderRadius:7,background:G.bg2,border:`1px solid ${G.border}`,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',fontSize:13,position:'relative'}} onClick={()=>setNotifOpen(true)}>
+                🔔{visibleNotifs.length>0&&<div style={{position:'absolute',top:3,right:3,minWidth:14,height:14,borderRadius:7,background:'#dc2626',border:'1.5px solid #fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,fontWeight:800,color:'#fff',padding:'0 3px'}}>{visibleNotifs.length>9?'9+':visibleNotifs.length}</div>}
               </div>
             </div>
           </div>
@@ -3102,8 +3296,8 @@ export default function App() {
                 <span style={{fontSize:11}}>📱</span>
                 <span style={{fontSize:11,fontWeight:600,color:G.accent}}>Member Portal</span>
               </div>
-              <div style={{width:32,height:32,borderRadius:7,background:G.bg2,border:`1.5px solid ${G.border}`,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',fontSize:13,position:'relative'}} onClick={()=>showToast('No new notifications')}>
-                🔔<div style={{position:'absolute',top:6,right:6,width:6,height:6,borderRadius:'50%',background:'#dc2626',border:'2px solid #fff'}}/>
+              <div style={{width:32,height:32,borderRadius:7,background:G.bg2,border:`1.5px solid ${G.border}`,display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',fontSize:13,position:'relative'}} onClick={()=>setNotifOpen(true)}>
+                🔔{visibleNotifs.length>0&&<div style={{position:'absolute',top:4,right:4,minWidth:16,height:16,borderRadius:8,background:'#dc2626',border:'2px solid #fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:9,fontWeight:800,color:'#fff',padding:'0 3px'}}>{visibleNotifs.length>9?'9+':visibleNotifs.length}</div>}
               </div>
               <Btn variant="primary" size="sm" onClick={()=>{setPage('members');showToast('Opening Add Member...');}}>+ Add Member</Btn>
             </div>
@@ -3129,6 +3323,7 @@ export default function App() {
         </nav>
 
       </div>
+      <NotificationCenter notifications={visibleNotifs} open={notifOpen} onClose={()=>setNotifOpen(false)} onDismiss={dismissNotif} onDismissAll={dismissAllNotifs} gymName={gymUser?.gymName}/>
       {toastMsg&&<Toast msg={toastMsg} onDone={()=>setToast(null)}/>}
     </div>
   );

@@ -2672,8 +2672,6 @@ export default function App() {
     setTrainersState(typeof updater==='function'?updater:()=>updater);
   }, []);
 
-  const gymCtxValue = { members, setMembers, attendance, addAttendance, staff, setStaff, trainers, setTrainers, gymProfile, setGymProfile, gymSettings, setGymSettings, gymUser:gymUser||GYM_ACCOUNTS[0], handleLogout };
-
   const [page, setPage]     = useState('dashboard');
   const [toastMsg, setToast] = useState(null);
   const showToast = msg => setToast(msg);
@@ -2692,6 +2690,8 @@ export default function App() {
     setDataLoaded(false);
     setShowOnboarding(false);
   };
+
+  const gymCtxValue = { members, setMembers, attendance, addAttendance, staff, setStaff, trainers, setTrainers, gymProfile, setGymProfile, gymSettings, setGymSettings, gymUser:gymUser||GYM_ACCOUNTS[0], handleLogout };
 
   const handleOnboardComplete = async ({ profile, members: newMembers, staff: newStaff }) => {
     if(newMembers.length) setMembersState(newMembers);

@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabase";
 
+const ADMIN_EMAILS = (import.meta.env.VITE_ADMIN_EMAILS || 'saranshandotra07@gmail.com').toLowerCase().split(',').map(e => e.trim());
+const isAdminEmail = (email) => ADMIN_EMAILS.includes(email?.toLowerCase());
+
 // ─────────────────────────────────────────────────────────────────────────────
 // THEME -- Identical to Onlifit.jsx main dashboard
 // White bg · Emerald #16a34a · Navy #0f172a
@@ -291,16 +294,10 @@ function Login({ onLogin }) {
         email: email.trim().toLowerCase(), password: pass,
       });
       if (authErr || !authData?.user) { setErr("Incorrect email or password."); setBusy(false); return; }
-      // Verify this user is a platform admin
-      const userEmail = authData.user.email?.toLowerCase();
-      const { data: admins, error: adminErr } = await supabase.from('platform_admins').select('id, email');
-      if (adminErr) { console.error('[OwnerPanel] Admin query error:', adminErr); }
-      const isAdmin = admins && admins.some(a => a.email?.toLowerCase() === userEmail);
-      if (isAdmin) { onLogin(); return; }
+      if (isAdminEmail(authData.user.email)) { onLogin(); return; }
       await supabase.auth.signOut();
       setErr("Access denied. This panel is restricted to platform admins."); setBusy(false);
     } catch(e) {
-      console.error('[OwnerPanel] Login error:', e);
       setErr("Login failed. Please try again."); setBusy(false);
     }
   };
@@ -1412,11 +1409,8 @@ export default function OwnerPanelApp() {
     (async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          const userEmail = session.user.email?.toLowerCase();
-          const { data: admins } = await supabase.from('platform_admins').select('id, email');
-          const isAdmin = admins && admins.some(a => a.email?.toLowerCase() === userEmail);
-          if (isAdmin) { setAuthed(true); }
+        if (session?.user && isAdminEmail(session.user.email)) {
+          setAuthed(true);
         }
       } catch(e) {}
       setChecking(false);

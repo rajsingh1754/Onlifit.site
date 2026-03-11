@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { QRCodeCanvas } from "qrcode.react";
+import { supabase } from "./supabase";
 
 // ─── QR CODE COMPONENT (using qrcode.react) ──────────────────────────────────
 const QRCode = ({ value, size = 200, dark = "#0f172a", light = "#ffffff" }) => {
@@ -70,8 +71,8 @@ const css = `
   }
 `;
 
-// ─── MEMBER DATA ──────────────────────────────────────────────────────────────
-const MEMBERS = {
+// ─── MEMBER DATA (fallback for demo) ──────────────────────────────────────────
+const FALLBACK_MEMBERS = {
   "IQ-KRM-0001": {
     id:"IQ-KRM-0001", name:"Arjun Mehta", init:"AM",
     phone:"+91 98765 43210", email:"arjun@email.com", dob:"Mar 15, 1995",
@@ -173,6 +174,7 @@ function LoginScreen({ onLogin }) {
   const [otp, setOtp]       = useState(["","","","",""]);
   const [error, setError]   = useState("");
   const [resend, setResend] = useState(0);
+  const [foundMember, setFoundMember] = useState(null);
   const otpRefs             = useRef([]);
 
   // Resend countdown
@@ -180,9 +182,44 @@ function LoginScreen({ onLogin }) {
     if (resend > 0) { const t = setTimeout(() => setResend(r => r-1), 1000); return () => clearTimeout(t); }
   }, [resend]);
 
-  const handleIdSubmit = () => {
+  const handleIdSubmit = async () => {
     const id = memberId.trim().toUpperCase();
-    if (!MEMBERS[id]) { setError("Member ID not found. Try IQ-KRM-0001"); return; }
+    // Try Supabase first
+    try {
+      const { data } = await supabase.from('members').select('*').eq('id', id).single();
+      if (data) {
+        const expDate = data.expiry_date ? new Date(data.expiry_date) : null;
+        const daysLeft = expDate ? Math.max(0, Math.ceil((expDate - Date.now()) / 864e5)) : 0;
+        const m = {
+          id: data.id, name: data.name, init: data.initials || data.name.split(' ').map(w=>w[0]).join(''),
+          phone: data.phone, email: data.email, dob: data.dob || '',
+          plan: data.plan, planPrice: 0, expiry: data.expiry_date, daysLeft,
+          status: data.status, joinDate: data.start_date, branch: 'Main',
+          trainer: data.trainer || '', trainerInit: (data.trainer||'').split(' ').map(w=>w[0]).join(''), trainerSpec: '',
+          totalVisits: data.visits || 0, streak: 0, thisMonth: 0,
+          attendance: [], ptSessions: [],
+          plan_details: { name: data.plan, price: 0, duration: '', features: ["Gym Access"], nextBilling: data.expiry_date },
+          workout: { goal:"General Fitness", level:"Intermediate", weeks:12, days:[] },
+        };
+        // Load attendance for this member
+        const { data: att } = await supabase.from('attendance').select('*').eq('member_id', id).order('created_at', { ascending: false }).limit(30);
+        if (att && att.length > 0) {
+          m.attendance = att.map(a => ({ date: a.date, day: '', checked: true, time: a.check_in }));
+          m.thisMonth = att.filter(a => a.date === 'Today' || a.date?.includes('Mar')).length;
+        }
+        // Load plan price
+        const { data: planData } = await supabase.from('plans').select('price').eq('gym_id', data.gym_id).eq('name', data.plan).single();
+        if (planData) { m.planPrice = planData.price; m.plan_details.price = planData.price; }
+        setFoundMember(m);
+        setError("");
+        setStep("loading");
+        setTimeout(() => { setStep("otp"); setResend(30); }, 1200);
+        return;
+      }
+    } catch(e) { /* fall through to fallback */ }
+    // Fallback to hardcoded data
+    if (!FALLBACK_MEMBERS[id]) { setError("Member ID not found. Try IQ-KRM-0001"); return; }
+    setFoundMember(FALLBACK_MEMBERS[id]);
     setError("");
     setStep("loading");
     setTimeout(() => { setStep("otp"); setResend(30); }, 1200);
@@ -210,7 +247,7 @@ function LoginScreen({ onLogin }) {
     }
     setError("");
     setStep("loading");
-    setTimeout(() => { onLogin(MEMBERS[memberId.trim().toUpperCase()]); }, 1000);
+    setTimeout(() => { onLogin(foundMember); }, 1000);
   };
 
   return (
@@ -272,7 +309,7 @@ function LoginScreen({ onLogin }) {
             <div className="fade-in">
               <div style={{ fontSize:18, fontWeight:700, color:"#fff", marginBottom:4 }}>Check your phone 📱</div>
               <div style={{ fontSize:13, color:"rgba(255,255,255,.45)", marginBottom:6 }}>
-                OTP sent to <strong style={{ color:"rgba(255,255,255,.7)" }}>{MEMBERS[memberId.trim().toUpperCase()]?.phone}</strong>
+                OTP sent to <strong style={{ color:"rgba(255,255,255,.7)" }}>{foundMember?.phone}</strong>
               </div>
               <div style={{ fontSize:12, color:"rgba(22,163,74,.8)", marginBottom:24, fontWeight:600 }}>Demo OTP: 1 2 3 4 (+ any digit)</div>
 

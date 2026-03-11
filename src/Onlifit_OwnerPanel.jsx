@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { supabase } from "./supabase";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // THEME -- Identical to Onlifit.jsx main dashboard
@@ -69,7 +70,7 @@ const LABEL = { fontSize:11, color:G.text3, letterSpacing:".5px", textTransform:
 const INPUT = { width:"100%", background:G.bg, border:`1.5px solid ${G.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, color:G.text, transition:"border .2s" };
 
 // ─── DATA ─────────────────────────────────────────────────────────────────────
-const GYMS_INIT = [
+const FALLBACK_GYMS = [
   { id:"GYM-001", name:"Onlifit",   owner:"Rajesh Kumar",  phone:"+91 98765 43210", email:"raj@onlifit.com",     city:"Bangalore", state:"Karnataka", branches:3, members:247, status:"active",    plan:"Multi-Branch", mrr:4999, lastPaid:"Mar 1, 2025",  nextDue:"Apr 1, 2025",  att:34,  joined:"Jan 15, 2025", gstin:"29AAFCI1234A1Z5" },
   { id:"GYM-002", name:"PowerZone Gym",    owner:"Suresh Nair",   phone:"+91 87654 32109", email:"suresh@pzone.com",   city:"Chennai",   state:"Tamil Nadu",  branches:1, members:98,  status:"active",    plan:"Growth",       mrr:2999, lastPaid:"Mar 3, 2025",  nextDue:"Apr 3, 2025",  att:18,  joined:"Feb 1, 2025",  gstin:"33AAFCP5678B2Z1" },
   { id:"GYM-003", name:"FitLife Studio",   owner:"Priya Menon",   phone:"+91 76543 21098", email:"priya@fitlife.com",  city:"Mumbai",    state:"Maharashtra", branches:1, members:64,  status:"suspended", plan:"Starter",      mrr:1999, lastPaid:"Jan 15, 2025", nextDue:"Feb 15, 2025", att:0,   joined:"Dec 10, 2024", gstin:"27AAFCF3456C3Z9" },
@@ -292,9 +293,20 @@ function Login({ onLogin }) {
   const [err,   setErr]   = useState("");
   const [busy,  setBusy]  = useState(false);
 
-  const submit = () => {
+  const submit = async () => {
     if (!email.trim()||!pass.trim()) { setErr("Both fields are required."); return; }
     setBusy(true); setErr("");
+    try {
+      // Try Supabase Auth first
+      const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(), password: pass,
+      });
+      if (!authErr && authData?.user) {
+        const { data: acct } = await supabase.from('gym_accounts').select('role').eq('email', authData.user.email).single();
+        if (acct?.role === 'super_admin') { onLogin(); return; }
+      }
+    } catch(e) { /* fall through */ }
+    // Fallback to hardcoded
     setTimeout(() => {
       if (email.trim().toLowerCase()==="owner@onlifit.app" && pass==="onlifit@2025") onLogin();
       else { setErr("Incorrect email or password."); setBusy(false); }
@@ -1152,7 +1164,7 @@ function PageSettings({ toast$ }) {
 // MAIN PANEL
 // ═════════════════════════════════════════════════════════════════════════════
 function Panel({ onLogout }) {
-  const [gyms,      setGyms]      = useState(GYMS_INIT);
+  const [gyms,      setGyms]      = useState([]);
   const [page,      setPage]      = useState("overview");
   const [detailGym, setDetailGym] = useState(null);
   const [warnGym,   setWarnGym]   = useState(null);
@@ -1160,6 +1172,37 @@ function Panel({ onLogout }) {
   const [addOpen,   setAddOpen]   = useState(false);
   const [toast,     setToast]     = useState(null);
   const [clock,     setClock]     = useState("");
+  const [loading,   setLoading]   = useState(true);
+
+  // Load gyms from Supabase
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.from('gym_accounts').select('*');
+        if (data && data.length > 0) {
+          const mapped = data.map(g => ({
+            id: g.gym_id, name: g.gym_name, owner: g.name, email: g.email,
+            phone: '', city: g.city, state: '', branches: 1, members: 0,
+            status: 'active', plan: 'Growth', mrr: 2999, lastPaid: '',
+            nextDue: '', att: 0, joined: g.created_at ? new Date(g.created_at).toLocaleDateString("en-IN",{month:"short",day:"numeric",year:"numeric"}) : '',
+            gstin: '', role: g.role,
+          }));
+          // Enrich with member counts and payment data
+          for (const gym of mapped) {
+            const { count } = await supabase.from('members').select('*', { count: 'exact', head: true }).eq('gym_id', gym.id);
+            gym.members = count || 0;
+          }
+          setGyms(mapped);
+        } else {
+          setGyms(FALLBACK_GYMS);
+        }
+      } catch(e) {
+        console.error("[OwnerPanel] Load error:", e);
+        setGyms(FALLBACK_GYMS);
+      }
+      setLoading(false);
+    })();
+  }, []);
 
   useEffect(()=>{
     const t = setInterval(()=>setClock(new Date().toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit",second:"2-digit"})), 1000);
@@ -1184,23 +1227,37 @@ function Panel({ onLogout }) {
     }
   },[]);
 
-  const doConfirm = () => {
+  const doConfirm = async () => {
     if (!confirm) return;
     const { type, gym } = confirm;
     if (type==="suspend") {
       setGyms(gs=>gs.map(g=>g.id===gym.id?{...g,status:"suspended",att:0}:g));
       toast$(`${gym.name} has been suspended.`, "danger");
+      // Update in Supabase (no status column yet, but future-proof)
     } else if (type==="restore") {
       setGyms(gs=>gs.map(g=>g.id===gym.id?{...g,status:"active",lastPaid:new Date().toLocaleDateString("en-IN",{month:"short",day:"numeric",year:"numeric"})}:g));
       toast$(`${gym.name} access restored.`);
     } else if (type==="delete") {
       setGyms(gs=>gs.filter(g=>g.id!==gym.id));
       toast$(`${gym.name} permanently deleted.`, "danger");
+      // Delete from Supabase
+      try { await supabase.from('gym_accounts').delete().eq('gym_id', gym.id); } catch(e) { console.error(e); }
     }
     setConfirm(null);
   };
 
-  const doAddGym = (newGym, creds) => {
+  const doAddGym = async (newGym, creds) => {
+    // Write to Supabase
+    try {
+      await supabase.from('gym_accounts').insert({
+        gym_id: newGym.id, user_id: creds.userId, email: newGym.email,
+        password: creds.tempPw, name: newGym.owner, gym_name: newGym.name,
+        city: newGym.city, role: newGym.role || 'gym_owner', is_new: true,
+      });
+      await supabase.from('gym_profiles').insert({
+        gym_id: newGym.id, gym_name: newGym.name, city: newGym.city,
+      });
+    } catch(e) { console.error("[OwnerPanel] Add gym error:", e); }
     setGyms(gs=>[...gs,newGym]);
     setAddOpen(false);
     toast$(`${newGym.name} onboarded! Login credentials sent to ${creds.email} 🎉`);
@@ -1236,6 +1293,15 @@ function Panel({ onLogout }) {
     support:`${SUPPORT_TICKETS.filter(t=>t.status==="open").length} open tickets`,
     settings:"Platform configuration",
   };
+
+  if (loading) return (
+    <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", background:G.bg2 }}>
+      <div style={{ textAlign:"center" }}>
+        <div style={{ width:40,height:40,border:`3px solid ${G.border}`,borderTop:`3px solid ${G.accent}`,borderRadius:"50%",animation:"spin .7s linear infinite",margin:"0 auto 14px" }}/>
+        <div style={{ fontSize:14, color:G.text2, fontWeight:600 }}>Loading gym data...</div>
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ display:"flex", height:"100vh", background:G.bg2, overflow:"hidden" }}>
@@ -1352,5 +1418,6 @@ export default function OwnerPanelApp() {
     document.head.appendChild(el);
     return ()=>document.head.removeChild(el);
   },[]);
-  return authed ? <Panel onLogout={()=>setAuthed(false)} /> : <Login onLogin={()=>setAuthed(true)} />;
+  const handleLogout = async () => { try { await supabase.auth.signOut(); } catch(e){} setAuthed(false); };
+  return authed ? <Panel onLogout={handleLogout} /> : <Login onLogin={()=>setAuthed(true)} />;
 }

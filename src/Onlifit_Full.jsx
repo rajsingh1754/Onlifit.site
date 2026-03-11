@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import jsQR from "jsqr";
+import { QRCodeCanvas } from "qrcode.react";
+import { supabase } from "./supabase";
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
 const G = {
@@ -113,12 +115,68 @@ function useIsMobile() {
   return mob;
 }
 
-// ─── DEMO ACCOUNTS ────────────────────────────────────────────────────────────
+// ─── DEMO ACCOUNTS (offline fallback) ─────────────────────────────────────────
 const GYM_ACCOUNTS = [
   {gym_id:'GYM-001',user_id:'usr_a1b2c3d4',email:'raj@onlifit.com',    password:'Onlifit@2025',name:'Rajesh Kumar', gymName:'Onlifit',  city:'Bangalore', role:'gym_owner', isNew:false},
   {gym_id:'GYM-002',user_id:'usr_b2c3d4e5',email:'suresh@pzone.com',  password:'PowerZ@001', name:'Suresh Nair',  gymName:'PowerZone Gym',   city:'Chennai',   role:'gym_owner', isNew:false},
   {gym_id:'GYM-NEW',user_id:'usr_new00001',email:'demo@newgym.com',   password:'NewGym@001', name:'Aryan Mehta',  gymName:'FitZone Pro',     city:'Pune',      role:'gym_owner', isNew:true},
 ];
+
+// ─── SUPABASE HELPERS ─────────────────────────────────────────────────────────
+async function supaLogin(email, password) {
+  try {
+    // Authenticate via Supabase Auth
+    const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
+      email: email.trim().toLowerCase(),
+      password,
+    });
+    if (authErr || !authData?.user) return null;
+    // Fetch gym account linked to this auth user
+    const { data, error } = await supabase
+      .from('gym_accounts')
+      .select('*')
+      .eq('email', authData.user.email)
+      .single();
+    if (error || !data) return null;
+    return { gym_id: data.gym_id, user_id: data.user_id, email: data.email, name: data.name, gymName: data.gym_name, city: data.city, role: data.role, isNew: data.is_new };
+  } catch { return null; }
+}
+
+async function supaSignUp(email, password) {
+  const { data, error } = await supabase.auth.signUp({ email, password });
+  return { data, error };
+}
+
+async function supaLogout() {
+  await supabase.auth.signOut();
+}
+
+async function supaLoadGymData(gymId) {
+  const [mRes, aRes, sRes, tRes, pRes, payRes, profRes] = await Promise.all([
+    supabase.from('members').select('*').eq('gym_id', gymId),
+    supabase.from('attendance').select('*').eq('gym_id', gymId).order('created_at', { ascending: false }),
+    supabase.from('staff').select('*').eq('gym_id', gymId),
+    supabase.from('trainers').select('*').eq('gym_id', gymId),
+    supabase.from('plans').select('*').eq('gym_id', gymId),
+    supabase.from('payments').select('*').eq('gym_id', gymId).order('created_at', { ascending: false }),
+    supabase.from('gym_profiles').select('*').eq('gym_id', gymId).single(),
+  ]);
+  const mapMember = r => ({ name:r.name, init:r.initials, id:r.id, phone:r.phone, email:r.email, plan:r.plan, start:r.start_date, expiry:r.expiry_date, status:r.status, trainer:r.trainer, visits:r.visits, dob:r.dob });
+  const mapAttendance = r => ({ id:r.id, memberId:r.member_id, memberName:r.member_name, init:r.initials, checkIn:r.check_in, date:r.date, trainer:r.trainer, method:r.method, status:r.status });
+  const mapStaff = r => ({ name:r.name, init:r.initials, id:r.id, role:r.role, branch:r.branch, members:r.members_count, present:r.present, salary:r.salary, phone:r.phone, email:r.email, joined:r.joined, qr:r.qr });
+  const mapTrainer = r => ({ name:r.name, init:r.initials, id:r.id, specialization:r.specialization, experience:r.experience, members:r.members||[], sessions:r.sessions, rating:r.rating, commission:r.commission, revenue:r.revenue, certifications:r.certifications, qr:r.qr });
+  const mapPlan = r => ({ name:r.name, days:r.days, price:r.price, pt:r.pt });
+  const mapProfile = r => r ? { gymName:r.gym_name, tagline:r.tagline, address:r.address, city:r.city, phone:r.phone, gstin:r.gstin, openTime:r.open_time, closeTime:r.close_time } : {};
+  return {
+    members: mRes.data?.map(mapMember) || [],
+    attendance: aRes.data?.map(mapAttendance) || [],
+    staff: sRes.data?.map(mapStaff) || [],
+    trainers: tRes.data?.map(mapTrainer) || [],
+    plans: pRes.data?.map(mapPlan) || [],
+    payments: payRes.data?.map(r=>({ member:r.member_name, inv:r.invoice, plan:r.plan, amount:r.amount, mode:r.mode, date:r.date, status:r.status })) || [],
+    profile: mapProfile(profRes.data),
+  };
+}
 
 // ─── SEED DATA ────────────────────────────────────────────────────────────────
 const SEED_MEMBERS = [
@@ -597,14 +655,15 @@ function GymLogin({ onLogin }) {
   const [busy,setBusy]   = useState(false);
   const [showDemo,setShowDemo] = useState(false);
 
-  const submit = () => {
+  const submit = async () => {
     if(!email.trim()||!pass.trim()){setErr('Both fields are required.');return;}
     setBusy(true);setErr('');
-    setTimeout(()=>{
-      const acct = GYM_ACCOUNTS.find(a=>a.email.toLowerCase()===email.trim().toLowerCase()&&a.password===pass);
-      if(acct) onLogin(acct);
-      else{setErr('Invalid email or password.');setBusy(false);}
-    },700);
+    // Try Supabase first, fall back to hardcoded accounts
+    const dbAcct = await supaLogin(email, pass);
+    if (dbAcct) { onLogin(dbAcct); return; }
+    const acct = GYM_ACCOUNTS.find(a=>a.email.toLowerCase()===email.trim().toLowerCase()&&a.password===pass);
+    if(acct) onLogin(acct);
+    else{setErr('Invalid email or password.');setBusy(false);}
   };
 
   return (
@@ -1287,7 +1346,10 @@ function PageMembers({ toast }) {
   const [filter,setFilter] = useState('all');
   const [showAdd,setShowAdd] = useState(false);
   const [showPortal,setShowPortal] = useState(null);
+  const [showEdit,setShowEdit] = useState(null);
+  const [showQR,setShowQR] = useState(null);
   const [form,setForm] = useState({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'Vikram Singh',coupon:''});
+  const [editForm,setEditForm] = useState({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'',status:'Active'});
   const portalBase = `https://members.onlifit.app/?gym=${gymUser.gym_id}`;
 
   const filterTabs = [
@@ -1298,15 +1360,47 @@ function PageMembers({ toast }) {
   ];
   const list = filter==='all' ? members : members.filter(m=>m.status===filter);
 
-  const saveNewMember = () => {
+  const saveNewMember = async () => {
     if(!form.name.trim()){toast('Name is required');return;}
     const prefix = gymUser.gym_id.replace('GYM-','').replace('-','').slice(0,3).toUpperCase()||'GYM';
     const id = `IQ-${prefix}-${String(members.length+1).padStart(4,'0')}`;
     const init = form.name.trim().split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
-    setMembers(prev=>[...prev,{name:form.name.trim(),init,id,phone:form.phone,email:form.email,plan:form.plan,start:'Mar 10',expiry:'Apr 9',status:'Active',trainer:form.trainer,visits:0,dob:form.dob}]);
+    const today = new Date();
+    const startStr = today.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    const planDays = {Monthly:30,Quarterly:90,Yearly:365}[form.plan]||30;
+    const expDate = new Date(today.getTime()+planDays*86400000);
+    const expStr = expDate.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    const memberData = {name:form.name.trim(),phone:form.phone,email:form.email,dob:form.dob,plan:form.plan,trainer:form.trainer};
+    const newMember = {name:memberData.name,init,id,phone:memberData.phone,email:memberData.email,plan:memberData.plan,start:startStr,expiry:expStr,status:'Active',trainer:memberData.trainer,visits:0,dob:memberData.dob};
+    setMembers(prev=>[...prev,newMember]);
     setShowAdd(false);
     setForm({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'Vikram Singh',coupon:''});
     toast(`Member added! Portal: ${portalBase}&member=${id}`);
+    // Persist to Supabase
+    const { error } = await supabase.from('members').insert({
+      id, gym_id: gymUser.gym_id, name: memberData.name, initials: init, phone: memberData.phone,
+      email: memberData.email, dob: memberData.dob, plan: memberData.plan, start_date: startStr, expiry_date: expStr,
+      status: 'Active', trainer: memberData.trainer, visits: 0,
+    });
+    if (error) toast('⚠️ Supabase save failed – data saved locally');
+  };
+
+  const openEdit = (m) => {
+    setShowEdit(m);
+    setEditForm({name:m.name,phone:m.phone||'',email:m.email||'',dob:m.dob||'',plan:m.plan||'Monthly',trainer:m.trainer||'',status:m.status||'Active'});
+  };
+
+  const saveEditMember = async () => {
+    if(!editForm.name.trim()){toast('Name is required');return;}
+    const updated = {...showEdit,...editForm,init:editForm.name.trim().split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()};
+    setMembers(prev=>prev.map(m=>m.id===showEdit.id?updated:m));
+    setShowEdit(null);
+    toast(`${editForm.name} updated ✓`);
+    const { error } = await supabase.from('members').update({
+      name:editForm.name.trim(), initials:updated.init, phone:editForm.phone, email:editForm.email,
+      dob:editForm.dob, plan:editForm.plan, trainer:editForm.trainer, status:editForm.status,
+    }).eq('id',showEdit.id);
+    if (error) toast('⚠️ Supabase update failed – updated locally');
   };
 
   return (
@@ -1337,8 +1431,8 @@ function PageMembers({ toast }) {
                     <td style={{padding:'11px 13px'}}>{checkedInToday?<Badge bright><LiveDot/>{checkedInToday.status==='inside'?'Inside':'Was in'}</Badge>:<span style={{fontSize:11,color:G.text3}}>--</span>}</td>
                     <td style={{padding:'11px 13px'}}>
                       <div style={s.flex(5)}>
-                        <Btn variant="ghost" size="xs" onClick={()=>toast(`Editing ${m.name}...`)}>Edit</Btn>
-                        <Btn variant="ghost" size="xs" onClick={()=>toast(`QR for ${m.id}`)}>QR</Btn>
+                        <Btn variant="ghost" size="xs" onClick={()=>openEdit(m)}>Edit</Btn>
+                        <Btn variant="ghost" size="xs" onClick={()=>setShowQR(m)}>QR</Btn>
                         <Btn variant="ghost" size="xs" style={{color:G.accent,borderColor:G.border2}} onClick={()=>setShowPortal(m)}>📱</Btn>
                       </div>
                     </td>
@@ -1388,6 +1482,33 @@ function PageMembers({ toast }) {
             <Btn variant="ghost" style={{flex:1}} onClick={()=>setShowPortal(null)}>Close</Btn>
             <Btn variant="primary" style={{flex:2}} onClick={()=>{toast(`WhatsApp sent to ${showPortal.name} ✓`);setShowPortal(null);}}>📱 Send via WhatsApp</Btn>
           </div>
+        </div>}
+      </Modal>
+
+      {/* Edit Member Modal */}
+      <Modal open={!!showEdit} onClose={()=>setShowEdit(null)} title={`Edit Member — ${showEdit?.name}`}>
+        {showEdit&&<div>
+          <div className="rg-2"><FG label="Full Name *"><Fi value={editForm.name} onChange={e=>setEditForm({...editForm,name:e.target.value})}/></FG><FG label="Phone"><Fi value={editForm.phone} onChange={e=>setEditForm({...editForm,phone:e.target.value})}/></FG></div>
+          <div className="rg-2"><FG label="Email"><Fi value={editForm.email} onChange={e=>setEditForm({...editForm,email:e.target.value})}/></FG><FG label="Date of Birth"><Fi type="date" value={editForm.dob} onChange={e=>setEditForm({...editForm,dob:e.target.value})}/></FG></div>
+          <div className="rg-2"><FG label="Membership Plan"><Fs value={editForm.plan} onChange={e=>setEditForm({...editForm,plan:e.target.value})}><option>Monthly</option><option>Quarterly</option><option>Yearly</option></Fs></FG><FG label="Assign Trainer"><Fi value={editForm.trainer} onChange={e=>setEditForm({...editForm,trainer:e.target.value})}/></FG></div>
+          <div className="rg-2"><FG label="Status"><Fs value={editForm.status} onChange={e=>setEditForm({...editForm,status:e.target.value})}><option>Active</option><option>Expired</option><option>Frozen</option></Fs></FG><FG label="Member ID"><Fi value={showEdit.id} disabled style={{opacity:.6}}/></FG></div>
+          <MFooter onCancel={()=>setShowEdit(null)} onSave={saveEditMember} saveLabel="✓ Save Changes"/>
+        </div>}
+      </Modal>
+
+      {/* QR Code Modal */}
+      <Modal open={!!showQR} onClose={()=>setShowQR(null)} title={`QR Code — ${showQR?.name}`} width={380}>
+        {showQR&&<div style={{textAlign:'center'}}>
+          <div style={{background:G.bg3,border:`1px solid ${G.border2}`,borderRadius:12,padding:'10px 14px',marginBottom:16,...s.flex(10)}}>
+            <Mav init={showQR.init} size={38}/>
+            <div style={{textAlign:'left'}}><div style={{fontSize:14,fontWeight:700,color:G.navy}}>{showQR.name}</div><div style={{...s.mono,fontSize:12,color:G.accent}}>{showQR.id}</div></div>
+          </div>
+          <div style={{background:'#ffffff',borderRadius:12,padding:24,display:'inline-block',border:`1px solid ${G.border}`,marginBottom:16}}>
+            <QRCodeCanvas value={showQR.id} size={200} fgColor="#0f172a" bgColor="#ffffff" level="M" style={{display:'block'}}/>
+          </div>
+          <div style={{...s.mono,fontSize:13,color:G.text2,marginBottom:12}}>Scan to check in: <strong style={{color:G.accent}}>{showQR.id}</strong></div>
+          <div style={{fontSize:11,color:G.text3,marginBottom:16}}>Show this QR at reception scanner for quick check-in</div>
+          <Btn variant="ghost" onClick={()=>setShowQR(null)}>Close</Btn>
         </div>}
       </Modal>
     </div>
@@ -1862,16 +1983,29 @@ function PageStaff({ toast }) {
     if(!form.salary){toast('Salary is required');return;}
     const id   = genStaffId();
     const init = form.name.trim().split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
-    const newSt = {...form,id,init,members:0,present:true,salary:parseInt(form.salary.replace(/[^0-9]/g,'')),qr:`QR-${id}`};
+    const salaryNum = parseInt(form.salary.replace(/[^0-9]/g,''));
+    const newSt = {...form,id,init,members:0,present:true,salary:salaryNum,qr:`QR-${id}`};
     setStaff(p=>[...p,newSt]);
     setShowAdd(false); setForm(blank);
     toast(`${form.name} added -- ID: ${id}, QR assigned ✓`);
+    // Persist to Supabase
+    supabase.from('staff').insert({
+      id, gym_id: gymUser.gym_id, name: form.name.trim(), initials: init, role: form.role,
+      branch: form.branch||'', members_count: 0, present: true, salary: salaryNum,
+      phone: form.phone||'', email: form.email||'', joined: form.joined||'', qr: `QR-${id}`,
+    }).then(()=>{});
   };
 
   const saveEdit = () => {
-    setStaff(p=>p.map(s=>s.id===showEdit.id?{...showEdit,...form,salary:parseInt(form.salary.toString().replace(/[^0-9]/g,'')),init:showEdit.init}:s));
+    const salaryNum = parseInt(form.salary.toString().replace(/[^0-9]/g,''));
+    setStaff(p=>p.map(s=>s.id===showEdit.id?{...showEdit,...form,salary:salaryNum,init:showEdit.init}:s));
     setShowEdit(null); setForm(blank);
     toast('Staff record updated ✓');
+    // Persist update to Supabase
+    supabase.from('staff').update({
+      name: form.name, role: form.role, branch: form.branch, salary: salaryNum,
+      phone: form.phone||'', email: form.email||'', joined: form.joined||'',
+    }).eq('id', showEdit.id).then(()=>{});
   };
 
   const openEdit = (st) => { setShowEdit(st); setForm({name:st.name,phone:st.phone||'',email:st.email||'',role:st.role,branch:st.branch,salary:String(st.salary),joined:st.joined||''}); };
@@ -2438,28 +2572,84 @@ const TITLES = {dashboard:'Dashboard',members:'Members',attendance:'Attendance',
 export default function App() {
   const [gymUser, setGymUser] = useState(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
+
+  // ── RESTORE SESSION on mount ──────────────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const { data } = await supabase.from('gym_accounts').select('*').eq('email', session.user.email).single();
+        if (data) {
+          const acct = { gym_id: data.gym_id, user_id: data.user_id, email: data.email, name: data.name, gymName: data.gym_name, city: data.city, role: data.role, isNew: data.is_new };
+          setGymUser(acct);
+          localStorage.setItem('onlifit_gym_user', JSON.stringify(acct));
+          if (data.is_new) setShowOnboarding(true);
+        }
+      } else {
+        // Restore from localStorage if no Supabase session
+        try {
+          const saved = localStorage.getItem('onlifit_gym_user');
+          if (saved) setGymUser(JSON.parse(saved));
+        } catch {}
+      }
+      setAuthChecked(true);
+    })();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) { setGymUser(null); setDataLoaded(false); }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   // ── SHARED LIVE STATE -- single source of truth ─────────────────────────────
-  const [members,    setMembersState]    = useState(SEED_MEMBERS);
-  const [attendance, setAttendanceState] = useState(SEED_ATTENDANCE);
-  const [staff,      setStaffState]      = useState(SEED_STAFF);
-  const [trainers,   setTrainersState]   = useState(SEED_TRAINERS);
+  const [members,    setMembersState]    = useState([]);
+  const [attendance, setAttendanceState] = useState([]);
+  const [staff,      setStaffState]      = useState([]);
+  const [trainers,   setTrainersState]   = useState([]);
   const [gymProfile, setGymProfile]      = useState({});
   const [gymSettings, setGymSettings]   = useState({
     rent: 85000, utilities: 22000, equipment: 15000,
     marketing: 18000, misc: 12000, monthlyTarget: 1000000,
   });
 
+  // Load gym data from Supabase after login
+  useEffect(() => {
+    if (!gymUser) { setDataLoaded(false); return; }
+    let cancelled = false;
+    (async () => {
+      const data = await supaLoadGymData(gymUser.gym_id);
+      if (cancelled) return;
+      // Use Supabase data if available, else fall back to SEED data
+      setMembersState(data.members.length ? data.members : SEED_MEMBERS);
+      setAttendanceState(data.attendance.length ? data.attendance : SEED_ATTENDANCE);
+      setStaffState(data.staff.length ? data.staff : SEED_STAFF);
+      setTrainersState(data.trainers.length ? data.trainers : SEED_TRAINERS);
+      if (data.profile.gymName) setGymProfile(data.profile);
+      setDataLoaded(true);
+    })();
+    return () => { cancelled = true; };
+  }, [gymUser]);
+
   // Attendance helpers
-  const addAttendance = useCallback((record, checkoutId) => {
+  const addAttendance = useCallback(async (record, checkoutId) => {
     if(checkoutId) {
       setAttendanceState(prev=>prev.map(a=>a.id===checkoutId?{...a,status:'left'}:a));
+      supabase.from('attendance').update({ status: 'left' }).eq('id', checkoutId).then(()=>{});
     } else if(record) {
       setAttendanceState(prev=>[record,...prev]);
-      // Sync visits count on member
       setMembersState(prev=>prev.map(m=>m.id===record.memberId?{...m,visits:(m.visits||0)+1}:m));
+      // Write to Supabase
+      if (gymUser) {
+        supabase.from('attendance').insert({
+          id: record.id, gym_id: gymUser.gym_id, member_id: record.memberId,
+          member_name: record.memberName, initials: record.init, check_in: record.checkIn,
+          date: record.date, trainer: record.trainer, method: record.method, status: record.status,
+        }).then(()=>{});
+        supabase.from('members').update({ visits: (record.visits||0)+1 }).eq('id', record.memberId).then(()=>{});
+      }
     }
-  }, []);
+  }, [gymUser]);
 
   const setMembers = useCallback((updater) => {
     setMembersState(typeof updater==='function'?updater:()=>updater);
@@ -2471,28 +2661,68 @@ export default function App() {
     setTrainersState(typeof updater==='function'?updater:()=>updater);
   }, []);
 
-  const gymCtxValue = { members, setMembers, attendance, addAttendance, staff, setStaff, trainers, setTrainers, gymProfile, setGymProfile, gymSettings, setGymSettings, gymUser:gymUser||GYM_ACCOUNTS[0] };
+  const gymCtxValue = { members, setMembers, attendance, addAttendance, staff, setStaff, trainers, setTrainers, gymProfile, setGymProfile, gymSettings, setGymSettings, gymUser:gymUser||GYM_ACCOUNTS[0], handleLogout };
 
   const [page, setPage]     = useState('dashboard');
   const [toastMsg, setToast] = useState(null);
   const showToast = msg => setToast(msg);
   const isMob = useIsMobile();
 
-  const handleLogin = (acct) => {
+  const handleLogin = async (acct) => {
     setGymUser(acct);
+    localStorage.setItem('onlifit_gym_user', JSON.stringify(acct));
     if(acct.isNew) setShowOnboarding(true);
   };
 
-  const handleOnboardComplete = ({ profile, members: newMembers, staff: newStaff }) => {
+  const handleLogout = async () => {
+    await supaLogout();
+    localStorage.removeItem('onlifit_gym_user');
+    setGymUser(null);
+    setDataLoaded(false);
+    setShowOnboarding(false);
+  };
+
+  const handleOnboardComplete = async ({ profile, members: newMembers, staff: newStaff }) => {
     if(newMembers.length) setMembersState(newMembers);
     if(newStaff.length)   setStaffState(newStaff);
     setGymProfile(profile);
     setShowOnboarding(false);
     showToast(`🚀 ${gymUser.gymName} is live! ${newMembers.length} members imported.`);
+    // Persist to Supabase
+    if (gymUser) {
+      // Save gym profile
+      await supabase.from('gym_profiles').upsert({
+        gym_id: gymUser.gym_id, gym_name: profile.gymName, tagline: profile.tagline,
+        address: profile.address, city: profile.city, phone: profile.phone,
+        gstin: profile.gstin, open_time: profile.openTime, close_time: profile.closeTime,
+      });
+      // Mark gym as onboarded
+      await supabase.from('gym_accounts').update({ is_new: false }).eq('gym_id', gymUser.gym_id);
+      // Save members
+      if (newMembers.length) {
+        const rows = newMembers.map(m => ({
+          id: m.id, gym_id: gymUser.gym_id, name: m.name, initials: m.init, phone: m.phone||'',
+          email: m.email||'', dob: m.dob||'', plan: m.plan, start_date: m.start, expiry_date: m.expiry,
+          status: m.status||'Active', trainer: m.trainer||'', visits: m.visits||0,
+        }));
+        await supabase.from('members').insert(rows);
+      }
+      // Save staff
+      if (newStaff.length) {
+        const rows = newStaff.map(st => ({
+          id: st.id, gym_id: gymUser.gym_id, name: st.name, initials: st.init, role: st.role,
+          branch: st.branch||'', members_count: st.members||0, present: st.present??true,
+          salary: parseInt(st.salary)||0, phone: st.phone||'', email: st.email||'', joined: st.joined||'', qr: st.qr||'',
+        }));
+        await supabase.from('staff').insert(rows);
+      }
+    }
   };
 
+  if(!authChecked) return (<div style={{width:'100%',height:'100vh',overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',background:G.bg2}}><style>{css}</style><div style={{textAlign:'center'}}><div style={{width:48,height:48,border:`3px solid ${G.border}`,borderTopColor:G.accent,borderRadius:'50%',animation:'spin .7s linear infinite',margin:'0 auto 16px'}}/><div style={{fontSize:14,fontWeight:600,color:G.navy}}>Onlifit</div><div style={{fontSize:12,color:G.text3,marginTop:4}}>Checking session...</div></div></div>);
   if(!gymUser) return (<div style={{width:'100%',height:'100vh',overflow:'auto'}}><style>{css}</style><GymLogin onLogin={handleLogin}/></div>);
   if(showOnboarding) return (<div style={{width:'100%',height:'100vh',overflow:'auto'}}><style>{css}</style><OnboardingWizard gymUser={gymUser} onComplete={handleOnboardComplete}/></div>);
+  if(!dataLoaded) return (<div style={{width:'100%',height:'100vh',overflow:'hidden',display:'flex',alignItems:'center',justifyContent:'center',background:G.bg2}}><style>{css}</style><div style={{textAlign:'center'}}><div style={{width:48,height:48,border:`3px solid ${G.border}`,borderTopColor:G.accent,borderRadius:'50%',animation:'spin .7s linear infinite',margin:'0 auto 16px'}}/><div style={{fontSize:14,fontWeight:600,color:G.navy}}>Loading {gymUser.gymName}...</div><div style={{fontSize:12,color:G.text3,marginTop:4}}>Fetching your gym data</div></div></div>);
 
   const initials = gymUser.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   const insideCount = attendance.filter(a=>a.date==='Today'&&a.status==='inside').length;
@@ -2572,7 +2802,7 @@ export default function App() {
                 <div style={{fontSize:10,color:G.text3}}>{gymUser.role}</div>
               </div>
             </div>
-            <Btn variant="ghost" style={{width:'100%',fontSize:11}} size="sm" onClick={()=>setGymUser(null)}>Sign Out</Btn>
+            <Btn variant="ghost" style={{width:'100%',fontSize:11}} size="sm" onClick={handleLogout}>Sign Out</Btn>
           </div>
         </div>
 

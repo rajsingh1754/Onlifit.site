@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import jsQR from "jsqr";
+import { supabase } from "./supabase";
 
-// ─── MEMBER DATABASE ──────────────────────────────────────────────────────────
-const DB = {
+// Hardcoded fallback DB (used when Supabase returns empty)
+const FALLBACK_DB = {
   "IQ-KRM-0001": { id:"IQ-KRM-0001", name:"Arjun Mehta",   init:"AM", plan:"Yearly",    expiry:"Dec 31 2025", status:"Active",  phone:"+91 98765 43210", trainer:"Vikram Singh", visits:87,  daysLeft:296 },
   "IQ-KRM-0002": { id:"IQ-KRM-0002", name:"Priya Sharma",  init:"PS", plan:"Quarterly", expiry:"Apr 30 2025", status:"Active",  phone:"+91 87654 32109", trainer:"Pooja Reddy",  visits:42,  daysLeft:51  },
   "IQ-KRM-0003": { id:"IQ-KRM-0003", name:"Karan Patel",   init:"KP", plan:"Monthly",   expiry:"Mar 14 2025", status:"Expired", phone:"+91 76543 21098", trainer:"Aryan Nair",   visits:18,  daysLeft:0   },
@@ -13,11 +14,11 @@ const DB = {
 };
 
 const INIT_LOG = [
-  { ...DB["IQ-KRM-0004"], time:"6:02 AM", result:"allowed" },
-  { ...DB["IQ-KRM-0001"], time:"6:18 AM", result:"allowed" },
-  { ...DB["IQ-KRM-0002"], time:"7:05 AM", result:"allowed" },
-  { ...DB["IQ-KRM-0003"], time:"7:22 AM", result:"denied"  },
-  { ...DB["IQ-KRM-0005"], time:"7:34 AM", result:"allowed" },
+  { ...FALLBACK_DB["IQ-KRM-0004"], time:"6:02 AM", result:"allowed" },
+  { ...FALLBACK_DB["IQ-KRM-0001"], time:"6:18 AM", result:"allowed" },
+  { ...FALLBACK_DB["IQ-KRM-0002"], time:"7:05 AM", result:"allowed" },
+  { ...FALLBACK_DB["IQ-KRM-0003"], time:"7:22 AM", result:"denied"  },
+  { ...FALLBACK_DB["IQ-KRM-0005"], time:"7:34 AM", result:"allowed" },
 ];
 
 const css = `
@@ -73,6 +74,41 @@ export default function ReceptionScanner() {
   const [clock, setClock]         = useState(nowTime());
   const [tab, setTab]             = useState("scanner"); // scanner | log
   const [aiThinking, setAiThink]  = useState(false);
+  const [DB, setDB]               = useState(FALLBACK_DB);
+  const [gymId, setGymId]         = useState(null);
+
+  // Load members from Supabase for the logged-in gym
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) return;
+        const { data: acct } = await supabase.from('gym_accounts').select('gym_id').eq('email', session.user.email).single();
+        if (!acct) return;
+        setGymId(acct.gym_id);
+        const { data: members } = await supabase.from('members').select('*').eq('gym_id', acct.gym_id);
+        if (members && members.length > 0) {
+          const db = {};
+          members.forEach(r => {
+            const expDate = r.expiry_date ? new Date(r.expiry_date) : null;
+            const daysLeft = expDate ? Math.max(0, Math.ceil((expDate - Date.now()) / 864e5)) : 0;
+            db[r.id] = { id:r.id, name:r.name, init:r.initials||r.name.split(' ').map(w=>w[0]).join(''), plan:r.plan, expiry:r.expiry_date, status:r.status, phone:r.phone, trainer:r.trainer, visits:r.visits||0, daysLeft };
+          });
+          setDB(db);
+        }
+        // Load today's attendance as initial log
+        const today = new Date().toLocaleDateString("en-IN",{year:"numeric",month:"2-digit",day:"2-digit"});
+        const { data: att } = await supabase.from('attendance').select('*').eq('gym_id', acct.gym_id).eq('date', 'Today').order('created_at', { ascending: false });
+        if (att && att.length > 0) {
+          const logEntries = att.map(a => ({
+            id: a.member_id, name: a.member_name, init: a.initials||'', plan: '', time: a.check_in,
+            result: a.status === 'inside' ? 'allowed' : 'allowed',
+          }));
+          setLog(logEntries);
+        }
+      } catch(e) { console.error("[Reception] Supabase load error:", e); }
+    })();
+  }, []);
 
   // Clock
   useEffect(() => {
@@ -189,7 +225,7 @@ export default function ReceptionScanner() {
 
     setAiThink(true);
     // Simulate 600ms AI processing
-    setTimeout(() => {
+    setTimeout(async () => {
       setAiThink(false);
       const member = DB[raw.trim()];
 
@@ -203,6 +239,21 @@ export default function ReceptionScanner() {
       setLog(prev => [entry, ...prev]);
 
       setResult({ type: member.status==="Active"?"allowed": member.status==="Expired"?"expired":"frozen", member });
+
+      // Write attendance to Supabase
+      if (gymId && member.status === "Active") {
+        try {
+          const attId = `att-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+          await supabase.from('attendance').insert({
+            id: attId, gym_id: gymId, member_id: member.id,
+            member_name: member.name, initials: member.init,
+            check_in: nowTime(), date: 'Today', trainer: member.trainer,
+            method: 'QR', status: 'inside'
+          });
+          // Increment visit count
+          supabase.from('members').update({ visits: (member.visits||0)+1 }).eq('id', member.id).then(()=>{});
+        } catch(e) { console.error("[Reception] Attendance write error:", e); }
+      }
 
       if (member.status === "Active") {
         speak(`Welcome ${member.name}. Have a great workout.`);

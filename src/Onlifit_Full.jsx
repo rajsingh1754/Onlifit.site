@@ -2578,17 +2578,24 @@ export default function App() {
   // ── RESTORE SESSION on mount ──────────────────────────────────────────────
   useEffect(() => {
     (async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const { data } = await supabase.from('gym_accounts').select('*').eq('email', session.user.email).single();
-        if (data) {
-          const acct = { gym_id: data.gym_id, user_id: data.user_id, email: data.email, name: data.name, gymName: data.gym_name, city: data.city, role: data.role, isNew: data.is_new };
-          setGymUser(acct);
-          localStorage.setItem('onlifit_gym_user', JSON.stringify(acct));
-          if (data.is_new) setShowOnboarding(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const { data } = await supabase.from('gym_accounts').select('*').eq('email', session.user.email).single();
+          if (data) {
+            const acct = { gym_id: data.gym_id, user_id: data.user_id, email: data.email, name: data.name, gymName: data.gym_name, city: data.city, role: data.role, isNew: data.is_new };
+            setGymUser(acct);
+            localStorage.setItem('onlifit_gym_user', JSON.stringify(acct));
+            if (data.is_new) setShowOnboarding(true);
+          }
+        } else {
+          try {
+            const saved = localStorage.getItem('onlifit_gym_user');
+            if (saved) setGymUser(JSON.parse(saved));
+          } catch {}
         }
-      } else {
-        // Restore from localStorage if no Supabase session
+      } catch (e) {
+        // Supabase unavailable — try localStorage
         try {
           const saved = localStorage.getItem('onlifit_gym_user');
           if (saved) setGymUser(JSON.parse(saved));
@@ -2596,10 +2603,14 @@ export default function App() {
       }
       setAuthChecked(true);
     })();
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) { setGymUser(null); setDataLoaded(false); }
-    });
-    return () => subscription.unsubscribe();
+    let subscription;
+    try {
+      const result = supabase.auth.onAuthStateChange((_event, session) => {
+        if (!session) { setGymUser(null); setDataLoaded(false); }
+      });
+      subscription = result.data.subscription;
+    } catch {}
+    return () => { if (subscription) subscription.unsubscribe(); };
   }, []);
 
   // ── SHARED LIVE STATE -- single source of truth ─────────────────────────────

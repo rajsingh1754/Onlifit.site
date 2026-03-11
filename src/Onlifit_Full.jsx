@@ -249,7 +249,7 @@ function generateNotifications(members, attendance, payments) {
 }
 
 async function supaLoadGymData(gymId) {
-  const [mRes, aRes, sRes, tRes, pRes, payRes, profRes] = await Promise.all([
+  const [mRes, aRes, sRes, tRes, pRes, payRes, profRes, enqRes] = await Promise.all([
     supabase.from('members').select('*').eq('gym_id', gymId),
     supabase.from('attendance').select('*').eq('gym_id', gymId).order('created_at', { ascending: false }),
     supabase.from('staff').select('*').eq('gym_id', gymId),
@@ -257,6 +257,7 @@ async function supaLoadGymData(gymId) {
     supabase.from('plans').select('*').eq('gym_id', gymId),
     supabase.from('payments').select('*').eq('gym_id', gymId).order('created_at', { ascending: false }),
     supabase.from('gym_profiles').select('*').eq('gym_id', gymId).single(),
+    supabase.from('enquiries').select('*').eq('gym_id', gymId).order('created_at', { ascending: false }),
   ]);
   const mapMember = r => { const status = checkExpiryStatus(r.expiry_date, r.status); return { name:r.name, init:r.initials, id:r.id, phone:r.phone, email:r.email, plan:r.plan, start:r.start_date, expiry:r.expiry_date, status, trainer:r.trainer, visits:r.visits, dob:r.dob }; };
   const mapAttendance = r => ({ id:r.id, memberId:r.member_id, memberName:r.member_name, init:r.initials, checkIn:r.check_in, date:r.date, trainer:r.trainer, method:r.method, status:r.status });
@@ -264,6 +265,7 @@ async function supaLoadGymData(gymId) {
   const mapTrainer = r => ({ name:r.name, init:r.initials, id:r.id, specialization:r.specialization, experience:r.experience, members:r.members||[], sessions:r.sessions, rating:r.rating, commission:r.commission, revenue:r.revenue, certifications:r.certifications, qr:r.qr });
   const mapPlan = r => ({ name:r.name, days:r.days, price:r.price, pt:r.pt });
   const mapProfile = r => r ? { gymName:r.gym_name, tagline:r.tagline, address:r.address, city:r.city, phone:r.phone, gstin:r.gstin, openTime:r.open_time, closeTime:r.close_time } : {};
+  const mapEnquiry = r => ({ id:r.id, name:r.name, phone:r.phone, email:r.email, source:r.source, interest:r.interest, status:r.status, assignedTo:r.assigned_to, notes:r.notes, followUpDate:r.follow_up_date, trialDate:r.trial_date, convertedMemberId:r.converted_member_id, createdAt:r.created_at, updatedAt:r.updated_at });
   return {
     members: mRes.data?.map(mapMember) || [],
     attendance: aRes.data?.map(mapAttendance) || [],
@@ -272,6 +274,7 @@ async function supaLoadGymData(gymId) {
     plans: pRes.data?.map(mapPlan) || [],
     payments: payRes.data?.map(r=>({ member:r.member_name, inv:r.invoice, plan:r.plan, amount:r.amount, mode:r.mode, date:r.date, status:r.status })) || [],
     profile: mapProfile(profRes.data),
+    enquiries: enqRes.data?.map(mapEnquiry) || [],
   };
 }
 
@@ -315,6 +318,14 @@ const SEED_PAYMENTS = [
   {member:'Sneha Rao',  inv:'INV-0346',plan:'Yearly',   amount:'₹14,000',mode:'Card',date:'Mar 8',status:'Paid'},
   {member:'Mohit Jain', inv:'INV-0345',plan:'Monthly',  amount:'₹1,500', mode:'Cash',date:'Mar 8',status:'Paid'},
   {member:'Aisha Khan', inv:'INV-0344',plan:'Quarterly',amount:'₹4,000', mode:'UPI', date:'Mar 7',status:'Pending'},
+];
+const SEED_ENQUIRIES = [
+  {id:'ENQ-001',name:'Amit Verma',phone:'+91 99887 76655',email:'amit.v@gmail.com',source:'Walk-in',interest:'Monthly',status:'New',assignedTo:'Vikram Singh',notes:'Visited gym, interested in morning batch',followUpDate:'',trialDate:'',convertedMemberId:'',createdAt:new Date().toISOString()},
+  {id:'ENQ-002',name:'Neha Kapoor',phone:'+91 88776 65544',email:'neha.k@gmail.com',source:'Instagram',interest:'Quarterly',status:'Contacted',assignedTo:'Pooja Reddy',notes:'DM on Instagram, sent pricing',followUpDate:'2026-03-13',trialDate:'',convertedMemberId:'',createdAt:new Date().toISOString()},
+  {id:'ENQ-003',name:'Rahul Desai',phone:'+91 77665 54433',email:'rahul.d@gmail.com',source:'Google',interest:'Yearly',status:'Follow-up',assignedTo:'Aryan Nair',notes:'Found us on Google Maps, wants PT',followUpDate:'2026-03-10',trialDate:'',convertedMemberId:'',createdAt:new Date().toISOString()},
+  {id:'ENQ-004',name:'Simran Kaur',phone:'+91 66554 43322',email:'simran.k@gmail.com',source:'Referral',interest:'Monthly',status:'Trial',assignedTo:'Vikram Singh',notes:'Referred by Arjun Mehta',followUpDate:'',trialDate:'2026-03-12',convertedMemberId:'',createdAt:new Date().toISOString()},
+  {id:'ENQ-005',name:'Varun Reddy',phone:'+91 55443 32211',email:'varun.r@gmail.com',source:'Phone',interest:'Quarterly',status:'Converted',assignedTo:'Pooja Reddy',notes:'Joined as member',followUpDate:'',trialDate:'',convertedMemberId:'IQ-KRM-0008',createdAt:new Date().toISOString()},
+  {id:'ENQ-006',name:'Megha Shah',phone:'+91 44332 21100',email:'megha.s@gmail.com',source:'Website',interest:'Monthly',status:'Lost',assignedTo:'Aryan Nair',notes:'Too expensive, joined competitor',followUpDate:'',trialDate:'',convertedMemberId:'',createdAt:new Date().toISOString()},
 ];
 const VALID_COUPONS = {IRON10:{type:'pct',val:10},NEWJOIN20:{type:'pct',val:20},REFER500:{type:'flat',val:500},SUMMER15:{type:'pct',val:15}};
 
@@ -2712,6 +2723,208 @@ function PageStaff({ toast }) {
 }
 
 
+// ─── PAGE: ENQUIRIES & LEADS ─────────────────────────────────────────────────
+function PageEnquiries({ toast }) {
+  const { enquiries, setEnquiries, staff, members, setMembers, gymUser } = useGym();
+  const [tab, setTab] = useState('All');
+  const [showAdd, setShowAdd] = useState(false);
+  const [showEdit, setShowEdit] = useState(null);
+  const [showConvert, setShowConvert] = useState(null);
+  const [search, setSearch] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const STATUSES = ['All','New','Contacted','Follow-up','Trial','Converted','Lost'];
+  const SOURCES = ['Walk-in','Phone','Instagram','Google','Referral','Website'];
+  const STATUS_COLORS = {New:'#3b82f6',Contacted:'#eab308','Follow-up':'#f97316',Trial:'#a855f7',Converted:'#22c55e',Lost:'#ef4444'};
+
+  const today = new Date().toISOString().split('T')[0];
+  const filtered = enquiries.filter(e => (tab === 'All' || e.status === tab) && (!search || e.name.toLowerCase().includes(search.toLowerCase()) || e.phone.includes(search)));
+  const totalLeads = enquiries.length;
+  const newToday = enquiries.filter(e => e.createdAt && e.createdAt.startsWith(today)).length;
+  const followUpsDue = enquiries.filter(e => e.followUpDate && e.followUpDate <= today && e.status !== 'Converted' && e.status !== 'Lost').length;
+  const convRate = totalLeads ? Math.round((enquiries.filter(e => e.status === 'Converted').length / totalLeads) * 100) : 0;
+
+  const genId = () => 'ENQ-' + String(Date.now()).slice(-6) + Math.random().toString(36).slice(2,4).toUpperCase();
+
+  const saveEnquiry = async (enq) => {
+    setSaving(true);
+    const row = { id: enq.id || genId(), gym_id: gymUser.gym_id, name: enq.name, phone: enq.phone || '', email: enq.email || '', source: enq.source || 'Walk-in', interest: enq.interest || 'Monthly', status: enq.status || 'New', assigned_to: enq.assignedTo || '', notes: enq.notes || '', follow_up_date: enq.followUpDate || '', trial_date: enq.trialDate || '', converted_member_id: enq.convertedMemberId || '', updated_at: new Date().toISOString() };
+    if (enq.id) {
+      const { error } = await supabase.from('enquiries').update(row).eq('id', enq.id);
+      if (error) toast('❌ Update failed');
+      else { setEnquiries(prev => prev.map(e => e.id === enq.id ? { ...e, ...enq, updatedAt: row.updated_at } : e)); toast('✅ Enquiry updated'); }
+    } else {
+      const { error } = await supabase.from('enquiries').insert(row);
+      if (error) toast('❌ Save failed');
+      else { const mapped = { id: row.id, name: row.name, phone: row.phone, email: row.email, source: row.source, interest: row.interest, status: row.status, assignedTo: row.assigned_to, notes: row.notes, followUpDate: row.follow_up_date, trialDate: row.trial_date, convertedMemberId: '', createdAt: new Date().toISOString() }; setEnquiries(prev => [mapped, ...prev]); toast('✅ Lead added'); }
+    }
+    setSaving(false); setShowAdd(false); setShowEdit(null);
+  };
+
+  const quickStatus = async (enq, newStatus) => {
+    const upd = { ...enq, status: newStatus };
+    if (newStatus === 'Trial') upd.trialDate = upd.trialDate || today;
+    await saveEnquiry(upd);
+  };
+
+  const deleteEnquiry = async (id) => {
+    const { error } = await supabase.from('enquiries').delete().eq('id', id);
+    if (error) toast('❌ Delete failed');
+    else { setEnquiries(prev => prev.filter(e => e.id !== id)); toast('🗑️ Lead removed'); }
+  };
+
+  const convertToMember = async (enq) => {
+    setSaving(true);
+    const memberId = 'IQ-' + gymUser.gym_id.replace('GYM-','') + '-' + String(members.length + 1).padStart(4,'0');
+    const init = enq.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+    const newMember = { id: memberId, name: enq.name, init, phone: enq.phone, email: enq.email, plan: enq.interest, start: today, expiry: '', status: 'Active', trainer: enq.assignedTo, visits: 0, dob: '' };
+    const dbRow = { id: memberId, gym_id: gymUser.gym_id, name: enq.name, initials: init, phone: enq.phone || '', email: enq.email || '', plan: enq.interest || 'Monthly', start_date: today, expiry_date: '', status: 'Active', trainer: enq.assignedTo || '', visits: 0, dob: '' };
+    const { error } = await supabase.from('members').insert(dbRow);
+    if (error) { toast('❌ Member creation failed'); setSaving(false); return; }
+    setMembers(prev => [...prev, newMember]);
+    await saveEnquiry({ ...enq, status: 'Converted', convertedMemberId: memberId });
+    toast(`✅ ${enq.name} converted to member ${memberId}`);
+    setSaving(false); setShowConvert(null);
+  };
+
+  const whatsApp = (enq) => {
+    const ph = enq.phone.replace(/[\s+\-]/g, '');
+    const msg = enq.status === 'New' ? `Hi ${enq.name}! Thanks for visiting ${gymUser?.gymName || 'our gym'}. We'd love to help you start your fitness journey! 💪` : enq.status === 'Trial' ? `Hi ${enq.name}! Your trial session is scheduled. Looking forward to seeing you! 🏋️` : `Hi ${enq.name}! Just checking in — any questions about our plans? We have a great ${enq.interest} offer for you! 🎯`;
+    window.open(`https://wa.me/${ph}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  // ── Enquiry Form Modal ──
+  const EnqForm = ({ enq, onSave, title }) => {
+    const [f, setF] = useState(enq || { name:'', phone:'', email:'', source:'Walk-in', interest:'Monthly', assignedTo:'', notes:'', followUpDate:'', status:'New' });
+    return (
+      <Modal onClose={() => { setShowAdd(false); setShowEdit(null); }}>
+        <div style={{padding:24,maxWidth:500,width:'100%'}}>
+          <h3 style={{color:G.text,margin:'0 0 16px',fontSize:16}}>{title}</h3>
+          <FG label="Name *"><input value={f.name} onChange={e=>setF({...f,name:e.target.value})} style={inputS} placeholder="Full name"/></FG>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <FG label="Phone"><input value={f.phone} onChange={e=>setF({...f,phone:e.target.value})} style={inputS} placeholder="+91 ..."/></FG>
+            <FG label="Email"><input value={f.email} onChange={e=>setF({...f,email:e.target.value})} style={inputS} placeholder="email@..."/></FG>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <FG label="Source"><select value={f.source} onChange={e=>setF({...f,source:e.target.value})} style={inputS}>{SOURCES.map(s=><option key={s}>{s}</option>)}</select></FG>
+            <FG label="Interested Plan"><select value={f.interest} onChange={e=>setF({...f,interest:e.target.value})} style={inputS}><option>Monthly</option><option>Quarterly</option><option>Yearly</option><option>Student Pack</option></select></FG>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+            <FG label="Assigned To"><select value={f.assignedTo} onChange={e=>setF({...f,assignedTo:e.target.value})} style={inputS}><option value="">-- Select --</option>{staff.map(s=><option key={s.id} value={s.name}>{s.name}</option>)}</select></FG>
+            <FG label="Follow-up Date"><input type="date" value={f.followUpDate} onChange={e=>setF({...f,followUpDate:e.target.value})} style={inputS}/></FG>
+          </div>
+          {enq && <FG label="Status"><select value={f.status} onChange={e=>setF({...f,status:e.target.value})} style={inputS}>{STATUSES.filter(s=>s!=='All').map(s=><option key={s}>{s}</option>)}</select></FG>}
+          <FG label="Notes"><textarea value={f.notes} onChange={e=>setF({...f,notes:e.target.value})} style={{...inputS,minHeight:60,resize:'vertical'}} placeholder="Add notes..."/></FG>
+          <MFooter onCancel={() => { setShowAdd(false); setShowEdit(null); }} onSave={() => f.name.trim() ? onSave({...f, id: enq?.id}) : toast('❌ Name is required')} saveLabel={saving ? '⏳ Saving...' : enq ? '💾 Update' : '➕ Add Lead'} />
+        </div>
+      </Modal>
+    );
+  };
+
+  return (
+    <div className="page-anim" style={{display:'flex',flexDirection:'column',gap:16}}>
+      {/* Summary Cards */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:12}}>
+        <div style={{background:G.card,borderRadius:12,padding:16,border:`1px solid ${G.border}`}}>
+          <div style={{fontSize:11,color:G.text2,marginBottom:4}}>Total Leads</div>
+          <div style={{fontSize:24,fontWeight:700,color:G.text}}>{totalLeads}</div>
+        </div>
+        <div style={{background:G.card,borderRadius:12,padding:16,border:`1px solid ${G.border}`}}>
+          <div style={{fontSize:11,color:G.text2,marginBottom:4}}>New Today</div>
+          <div style={{fontSize:24,fontWeight:700,color:'#3b82f6'}}>{newToday}</div>
+        </div>
+        <div style={{background:G.card,borderRadius:12,padding:16,border:`1px solid ${G.border}`}}>
+          <div style={{fontSize:11,color:G.text2,marginBottom:4}}>Follow-ups Due</div>
+          <div style={{fontSize:24,fontWeight:700,color:followUpsDue > 0 ? '#f97316' : G.text}}>{followUpsDue}</div>
+        </div>
+        <div style={{background:G.card,borderRadius:12,padding:16,border:`1px solid ${G.border}`}}>
+          <div style={{fontSize:11,color:G.text2,marginBottom:4}}>Conversion Rate</div>
+          <div style={{fontSize:24,fontWeight:700,color:'#22c55e'}}>{convRate}%</div>
+        </div>
+      </div>
+
+      {/* Toolbar */}
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+        <input placeholder="🔍 Search leads..." value={search} onChange={e=>setSearch(e.target.value)} style={{...inputS,flex:1,minWidth:180}} />
+        <button onClick={()=>setShowAdd(true)} style={{padding:'8px 16px',borderRadius:8,background:G.accent,color:'#fff',fontWeight:600,fontSize:13,border:'none',cursor:'pointer'}}>+ New Lead</button>
+      </div>
+
+      {/* Pipeline Tabs */}
+      <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+        {STATUSES.map(s => {
+          const count = s === 'All' ? enquiries.length : enquiries.filter(e=>e.status===s).length;
+          return <button key={s} onClick={()=>setTab(s)} style={{padding:'6px 14px',borderRadius:20,fontSize:12,fontWeight:tab===s?700:500,background:tab===s?(STATUS_COLORS[s]||G.accent)+'18':G.card,color:tab===s?(STATUS_COLORS[s]||G.accent):G.text2,border:`1.5px solid ${tab===s?(STATUS_COLORS[s]||G.accent):G.border}`,cursor:'pointer'}}>{s} ({count})</button>;
+        })}
+      </div>
+
+      {/* Leads Table */}
+      <div style={{background:G.card,borderRadius:12,border:`1px solid ${G.border}`,overflow:'auto'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+          <thead>
+            <tr style={{background:G.bg4}}>
+              {['Name','Phone','Source','Interest','Status','Assigned','Follow-up','Actions'].map(h=><th key={h} style={{padding:'10px 12px',textAlign:'left',fontWeight:600,color:G.text2,fontSize:11,textTransform:'uppercase',whiteSpace:'nowrap'}}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 && <tr><td colSpan={8} style={{padding:32,textAlign:'center',color:G.text2}}>No leads found</td></tr>}
+            {filtered.map(enq => {
+              const overdue = enq.followUpDate && enq.followUpDate < today && enq.status !== 'Converted' && enq.status !== 'Lost';
+              return (
+                <tr key={enq.id} style={{borderBottom:`1px solid ${G.border}`}}>
+                  <td style={{padding:'10px 12px'}}>
+                    <div style={{fontWeight:600,color:G.text}}>{enq.name}</div>
+                    {enq.email && <div style={{fontSize:11,color:G.text2}}>{enq.email}</div>}
+                  </td>
+                  <td style={{padding:'10px 12px',color:G.text}}>{enq.phone}</td>
+                  <td style={{padding:'10px 12px'}}><span style={{padding:'3px 8px',borderRadius:10,fontSize:11,fontWeight:600,background:enq.source==='Walk-in'?'#dbeafe':enq.source==='Instagram'?'#fce7f3':enq.source==='Google'?'#dcfce7':enq.source==='Referral'?'#fef3c7':enq.source==='Phone'?'#e0e7ff':'#f3e8ff',color:enq.source==='Walk-in'?'#1d4ed8':enq.source==='Instagram'?'#be185d':enq.source==='Google'?'#15803d':enq.source==='Referral'?'#a16207':enq.source==='Phone'?'#3730a3':'#7e22ce'}}>{enq.source}</span></td>
+                  <td style={{padding:'10px 12px',color:G.text}}>{enq.interest}</td>
+                  <td style={{padding:'10px 12px'}}><span style={{padding:'3px 10px',borderRadius:10,fontSize:11,fontWeight:700,color:'#fff',background:STATUS_COLORS[enq.status]||G.text2}}>{enq.status}</span></td>
+                  <td style={{padding:'10px 12px',color:G.text,fontSize:12}}>{enq.assignedTo||'—'}</td>
+                  <td style={{padding:'10px 12px'}}>
+                    {enq.followUpDate ? <span style={{fontSize:12,fontWeight:overdue?700:400,color:overdue?'#ef4444':G.text}}>{overdue?'⚠️ ':''}{enq.followUpDate}</span> : <span style={{color:G.text2,fontSize:12}}>—</span>}
+                  </td>
+                  <td style={{padding:'10px 12px',whiteSpace:'nowrap'}}>
+                    <div style={{display:'flex',gap:4,flexWrap:'wrap'}}>
+                      {enq.status !== 'Converted' && enq.status !== 'Lost' && <>
+                        {enq.status === 'New' && <button onClick={()=>quickStatus(enq,'Contacted')} title="Mark Contacted" style={{padding:'4px 8px',borderRadius:6,fontSize:11,background:'#fef9c3',border:'1px solid #eab308',cursor:'pointer'}}>📞</button>}
+                        {(enq.status === 'Contacted' || enq.status === 'Follow-up') && <button onClick={()=>quickStatus(enq,'Trial')} title="Schedule Trial" style={{padding:'4px 8px',borderRadius:6,fontSize:11,background:'#f3e8ff',border:'1px solid #a855f7',cursor:'pointer'}}>🎫</button>}
+                        {enq.status === 'Trial' && <button onClick={()=>setShowConvert(enq)} title="Convert to Member" style={{padding:'4px 8px',borderRadius:6,fontSize:11,background:'#dcfce7',border:'1px solid #22c55e',cursor:'pointer'}}>✅</button>}
+                        <button onClick={()=>whatsApp(enq)} title="WhatsApp" style={{padding:'4px 8px',borderRadius:6,fontSize:11,background:'#dcfce7',border:'1px solid #22c55e',cursor:'pointer'}}>💬</button>
+                      </>}
+                      <button onClick={()=>setShowEdit(enq)} title="Edit" style={{padding:'4px 8px',borderRadius:6,fontSize:11,background:G.bg4,border:`1px solid ${G.border}`,cursor:'pointer'}}>✏️</button>
+                      <button onClick={()=>deleteEnquiry(enq.id)} title="Delete" style={{padding:'4px 8px',borderRadius:6,fontSize:11,background:'#fef2f2',border:'1px solid #fca5a5',cursor:'pointer'}}>🗑️</button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Add Modal */}
+      {showAdd && <EnqForm onSave={saveEnquiry} title="➕ Add New Lead" />}
+      {/* Edit Modal */}
+      {showEdit && <EnqForm enq={showEdit} onSave={saveEnquiry} title="✏️ Edit Lead" />}
+      {/* Convert Confirmation */}
+      {showConvert && (
+        <Modal onClose={()=>setShowConvert(null)}>
+          <div style={{padding:24,maxWidth:400,textAlign:'center'}}>
+            <div style={{fontSize:36,marginBottom:12}}>🎉</div>
+            <h3 style={{color:G.text,margin:'0 0 8px'}}>Convert to Member?</h3>
+            <p style={{color:G.text2,fontSize:13,margin:'0 0 16px'}}>This will create a new member record for <strong>{showConvert.name}</strong> with plan <strong>{showConvert.interest}</strong>.</p>
+            <div style={{display:'flex',gap:8,justifyContent:'center'}}>
+              <button onClick={()=>setShowConvert(null)} style={{padding:'8px 20px',borderRadius:8,border:`1px solid ${G.border}`,background:G.card,color:G.text,cursor:'pointer',fontSize:13}}>Cancel</button>
+              <button onClick={()=>convertToMember(showConvert)} disabled={saving} style={{padding:'8px 20px',borderRadius:8,border:'none',background:'#22c55e',color:'#fff',fontWeight:600,cursor:'pointer',fontSize:13}}>{saving ? '⏳ Converting...' : '✅ Convert'}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+
 function PagePT({ toast }) {
   const { trainers, setTrainers, members, gymUser } = useGym();
   const [showEnroll, setShowEnroll] = useState(false);
@@ -3221,12 +3434,12 @@ function NotificationCenter({ notifications, open, onClose, onDismiss, onDismiss
 
 // ─── NAV CONFIG ───────────────────────────────────────────────────────────────
 const NAV = [
-  {section:'Core',    items:[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'members',icon:'👥',label:'Members',badge:3},{id:'attendance',icon:'📅',label:'Attendance',badge:'Live'}]},
+  {section:'Core',    items:[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'members',icon:'👥',label:'Members',badge:3},{id:'attendance',icon:'📅',label:'Attendance',badge:'Live'},{id:'enquiries',icon:'📋',label:'Enquiries'}]},
   {section:'Finance', items:[{id:'revenue',icon:'💰',label:'Revenue'},{id:'fees',icon:'💳',label:'Fees & Billing',badge:7},{id:'discounts',icon:'🏷️',label:'Discounts'}]},
   {section:'People',  items:[{id:'staff',icon:'🧑‍💼',label:'Staff'},{id:'pt',icon:'🏋️',label:'Personal Training'},{id:'ai',icon:'✦',label:'AI Assistant'}]},
   {section:'Config',  items:[{id:'settings',icon:'⚙️',label:'Settings'}]},
 ];
-const TITLES = {dashboard:'Dashboard',members:'Members',attendance:'Attendance',revenue:'Revenue',fees:'Fees & Billing',discounts:'Discounts & Offers',staff:'Staff',pt:'Personal Training',ai:'AI Assistant',settings:'Settings'};
+const TITLES = {dashboard:'Dashboard',members:'Members',attendance:'Attendance',enquiries:'Enquiries & Leads',revenue:'Revenue',fees:'Fees & Billing',discounts:'Discounts & Offers',staff:'Staff',pt:'Personal Training',ai:'AI Assistant',settings:'Settings'};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ROOT APP
@@ -3281,6 +3494,7 @@ export default function App() {
   const [staff,      setStaffState]      = useState([]);
   const [trainers,   setTrainersState]   = useState([]);
   const [gymProfile, setGymProfile]      = useState({});
+  const [enquiries, setEnquiriesState]   = useState([]);
   const [gymSettings, setGymSettings]   = useState({
     rent: 85000, utilities: 22000, equipment: 15000,
     marketing: 18000, misc: 12000, monthlyTarget: 1000000,
@@ -3298,6 +3512,7 @@ export default function App() {
       setAttendanceState(data.attendance.length ? data.attendance : SEED_ATTENDANCE);
       setStaffState(data.staff.length ? data.staff : SEED_STAFF);
       setTrainersState(data.trainers.length ? data.trainers : SEED_TRAINERS);
+      setEnquiriesState(data.enquiries.length ? data.enquiries : SEED_ENQUIRIES);
       if (data.profile.gymName) setGymProfile(data.profile);
       setDataLoaded(true);
     })();
@@ -3332,6 +3547,9 @@ export default function App() {
   }, []);
   const setTrainers = useCallback((updater) => {
     setTrainersState(typeof updater==='function'?updater:()=>updater);
+  }, []);
+  const setEnquiries = useCallback((updater) => {
+    setEnquiriesState(typeof updater==='function'?updater:()=>updater);
   }, []);
 
   const [page, setPage]     = useState('dashboard');
@@ -3394,7 +3612,7 @@ export default function App() {
     setShowOnboarding(false);
   };
 
-  const gymCtxValue = { members, setMembers, attendance, addAttendance, staff, setStaff, trainers, setTrainers, gymProfile, setGymProfile, gymSettings, setGymSettings, gymUser:gymUser||GYM_ACCOUNTS[0], handleLogout };
+  const gymCtxValue = { members, setMembers, attendance, addAttendance, staff, setStaff, trainers, setTrainers, enquiries, setEnquiries, gymProfile, setGymProfile, gymSettings, setGymSettings, gymUser:gymUser||GYM_ACCOUNTS[0], handleLogout };
 
   const handleOnboardComplete = async ({ profile, members: newMembers, staff: newStaff }) => {
     if(newMembers.length) setMembersState(newMembers);
@@ -3445,6 +3663,7 @@ export default function App() {
     dashboard:  <PageDashboard  toast={showToast}/>,
     members:    <PageMembers    toast={showToast}/>,
     attendance: <PageAttendance toast={showToast}/>,
+    enquiries:  <PageEnquiries  toast={showToast}/>,
     revenue:    <PageRevenue    toast={showToast}/>,
     fees:       <PageFees       toast={showToast}/>,
     discounts:  <PageDiscounts  toast={showToast}/>,

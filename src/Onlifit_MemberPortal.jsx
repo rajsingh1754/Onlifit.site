@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { QRCodeCanvas } from "qrcode.react";
 import { supabase } from "./supabase";
 
+const STORAGE_KEY = 'onlifit_member_user';
+
 // ─── QR CODE COMPONENT (using qrcode.react) ──────────────────────────────────
 const QRCode = ({ value, size = 200, dark = "#0f172a", light = "#ffffff" }) => {
   return <QRCodeCanvas value={value} size={size} fgColor={dark} bgColor={light} level="M" style={{ borderRadius: 8, display:"block" }} />;
@@ -197,6 +199,10 @@ function LoginScreen({ onLogin }) {
           status: data.status, joinDate: data.start_date, branch: 'Main',
           trainer: data.trainer || '', trainerInit: (data.trainer||'').split(' ').map(w=>w[0]).join(''), trainerSpec: '',
           totalVisits: data.visits || 0, streak: 0, thisMonth: 0,
+          gym_id: data.gym_id || 'GYM001',
+          freeze_start: data.freeze_start || '',
+          emergency_contact: data.emergency_contact || '',
+          emergency_phone: data.emergency_phone || '',
           attendance: [], ptSessions: [],
           plan_details: { name: data.plan, price: 0, duration: '', features: ["Gym Access"], nextBilling: data.expiry_date },
           workout: { goal:"General Fitness", level:"Intermediate", weeks:12, days:[] },
@@ -351,26 +357,163 @@ function LoginScreen({ onLogin }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // MEMBER PORTAL -- main app after login
 // ══════════════════════════════════════════════════════════════════════════════
-function MemberPortal({ member, onLogout }) {
+function MemberPortal({ member: initialMember, onLogout }) {
+  const [member, setMember] = useState(initialMember);
   const [tab, setTab]           = useState("home");
   const [showRenew, setRenew]   = useState(false);
-  const [showBook, setBook]     = useState(false);
   const [showQR, setShowQR]     = useState(false);
   const [toast, setToast]       = useState(null);
   const [workoutDay, setWDay]   = useState(null);
-  const [bookForm, setBookForm] = useState({ date:"", time:"6:00 AM", type:"Strength", notes:"" });
+  const [payments, setPayments] = useState([]);
+  const [loadingPay, setLoadingPay] = useState(false);
+  const [paying, setPaying]     = useState(false);
+  const [editing, setEditing]   = useState(false);
+  const [editForm, setEditForm] = useState({ phone: member.phone||'', email: member.email||'', emergency_contact: member.emergency_contact||'', emergency_phone: member.emergency_phone||'' });
+  const [saving, setSaving]     = useState(false);
+  const [freezing, setFreezing] = useState(false);
 
-  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
 
+  // Refresh member data from Supabase
+  const refreshMember = async () => {
+    try {
+      const { data } = await supabase.from('members').select('*').eq('id', member.id).single();
+      if (data) {
+        const expDate = data.expiry_date ? new Date(data.expiry_date) : null;
+        const daysLeft = expDate ? Math.max(0, Math.ceil((expDate - Date.now()) / 864e5)) : 0;
+        const updated = {
+          ...member, phone: data.phone, email: data.email, dob: data.dob||'',
+          plan: data.plan, expiry: data.expiry_date, daysLeft, status: data.status,
+          visits: data.visits||0, trainer: data.trainer||'',
+          freeze_start: data.freeze_start||'',
+          emergency_contact: data.emergency_contact||'',
+          emergency_phone: data.emergency_phone||'',
+        };
+        setMember(updated);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      }
+    } catch(e) { /* silent */ }
+  };
+
+  // Load payment history
+  useEffect(() => {
+    (async () => {
+      setLoadingPay(true);
+      try {
+        const { data } = await supabase.from('payments').select('*').eq('member_id', member.id).order('created_at', { ascending: false }).limit(50);
+        if (data) setPayments(data);
+      } catch(e) { /* silent */ }
+      setLoadingPay(false);
+    })();
+  }, [member.id]);
+
+  // ── Razorpay Renewal ──
+  const handleRenewPayment = async (plan) => {
+    const rzpKey = import.meta.env.VITE_RAZORPAY_KEY_ID;
+    if (!rzpKey) {
+      // Fallback: record as cash payment for demo
+      await recordRenewal(plan, 'Cash', null);
+      return;
+    }
+    setPaying(true);
+    const options = {
+      key: rzpKey, amount: plan.price * 100, currency: 'INR',
+      name: 'Onlifit', description: `${plan.name} Membership Renewal`,
+      handler: async (response) => {
+        await recordRenewal(plan, 'Razorpay', response.razorpay_payment_id);
+        setPaying(false);
+      },
+      prefill: { name: member.name, email: member.email||'', contact: member.phone||'' },
+      modal: { ondismiss: () => setPaying(false) },
+    };
+    try { const rzp = new window.Razorpay(options); rzp.open(); }
+    catch { showToast('⚠️ Payment gateway not loaded'); setPaying(false); }
+  };
+
+  const recordRenewal = async (plan, mode, txnId) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const invNo = `INV-${Date.now().toString().slice(-6)}`;
+    // Calculate new expiry
+    const currentExpiry = member.expiry ? new Date(member.expiry) : new Date();
+    const base = currentExpiry > new Date() ? currentExpiry : new Date();
+    const newExpiry = new Date(base);
+    newExpiry.setDate(newExpiry.getDate() + plan.days);
+    const newExpiryStr = newExpiry.toISOString().slice(0, 10);
+
+    // Insert payment record
+    const paymentData = {
+      gym_id: member.gym_id||'GYM001', member_id: member.id, member_name: member.name,
+      invoice: invNo, plan: plan.name, amount: String(plan.price), mode, date: today,
+      status: 'Paid', txn_id: txnId||'',
+    };
+    const { error: payErr } = await supabase.from('payments').insert(paymentData);
+    if (payErr) { showToast('⚠️ Payment recording failed'); return; }
+
+    // Update member expiry
+    const { error: memErr } = await supabase.from('members').update({
+      expiry_date: newExpiryStr, plan: plan.name, status: 'Active',
+    }).eq('id', member.id);
+
+    if (memErr) { showToast('⚠️ Membership update failed'); return; }
+
+    setPayments(prev => [paymentData, ...prev]);
+    showToast(`✅ ${plan.name} renewed! New expiry: ${newExpiryStr}`);
+    setRenew(false);
+    await refreshMember();
+  };
+
+  // ── Freeze / Unfreeze ──
+  const handleFreeze = async () => {
+    setFreezing(true);
+    const today = new Date().toISOString().slice(0, 10);
+    const { error } = await supabase.from('members').update({
+      status: 'Frozen', freeze_start: today,
+    }).eq('id', member.id);
+    if (error) { showToast('⚠️ Freeze failed'); }
+    else { showToast('❄️ Membership frozen. Your remaining days are preserved.'); await refreshMember(); }
+    setFreezing(false);
+  };
+
+  const handleUnfreeze = async () => {
+    setFreezing(true);
+    // Calculate days frozen and extend expiry
+    const freezeStart = member.freeze_start ? new Date(member.freeze_start) : new Date();
+    const frozenDays = Math.max(0, Math.ceil((Date.now() - freezeStart) / 864e5));
+    const currentExpiry = member.expiry ? new Date(member.expiry) : new Date();
+    const newExpiry = new Date(currentExpiry);
+    newExpiry.setDate(newExpiry.getDate() + frozenDays);
+    const newExpiryStr = newExpiry.toISOString().slice(0, 10);
+
+    const { error } = await supabase.from('members').update({
+      status: 'Active', freeze_start: '', expiry_date: newExpiryStr,
+    }).eq('id', member.id);
+    if (error) { showToast('⚠️ Unfreeze failed'); }
+    else { showToast(`✅ Membership active! +${frozenDays} days added. New expiry: ${newExpiryStr}`); await refreshMember(); }
+    setFreezing(false);
+  };
+
+  // ── Profile Save ──
+  const handleProfileSave = async () => {
+    setSaving(true);
+    const { error } = await supabase.from('members').update({
+      phone: editForm.phone, email: editForm.email,
+      emergency_contact: editForm.emergency_contact, emergency_phone: editForm.emergency_phone,
+    }).eq('id', member.id);
+    if (error) { showToast('⚠️ Update failed'); }
+    else { showToast('✅ Profile updated!'); setEditing(false); await refreshMember(); }
+    setSaving(false);
+  };
+
+  const isFrozen = member.status === 'Frozen';
   const pct = Math.round((member.daysLeft / (member.plan==="Yearly"?365:member.plan==="Quarterly"?90:30)) * 100);
-  const urgent = member.daysLeft < 30;
+  const urgent = member.daysLeft < 30 && !isFrozen;
 
   const TABS = [
     { id:"home",       icon:"🏠", label:"Home"       },
     { id:"attendance", icon:"📅", label:"Attendance"  },
     { id:"plan",       icon:"💳", label:"My Plan"     },
-    { id:"pt",         icon:"🏋️", label:"PT Sessions" },
-    { id:"workout",    icon:"📋", label:"Workout Plan"},
+    { id:"payments",   icon:"💰", label:"Payments"    },
+    { id:"profile",    icon:"👤", label:"Profile"     },
   ];
 
   return (
@@ -404,6 +547,12 @@ function MemberPortal({ member, onLogout }) {
               <div style={{ position:"absolute", top:"-40px", right:"-40px", width:160, height:160, borderRadius:"50%", background:"rgba(22,163,74,.12)", pointerEvents:"none" }}/>
               <div style={{ fontSize:13, color:"rgba(255,255,255,.5)", fontWeight:500, marginBottom:4 }}>Good morning 👋</div>
               <div style={{ fontSize:24, fontWeight:800, color:"#fff", letterSpacing:"-0.5px", marginBottom:16 }}>{member.name}</div>
+              {isFrozen && (
+                <div style={{ background:"rgba(147,197,253,.15)", border:"1px solid rgba(147,197,253,.3)", borderRadius:10, padding:"8px 14px", marginBottom:12, display:"flex", alignItems:"center", gap:8 }}>
+                  <span style={{ fontSize:16 }}>❄️</span>
+                  <span style={{ fontSize:12, color:"#93c5fd", fontWeight:600 }}>Membership Frozen — your remaining days are paused</span>
+                </div>
+              )}
               <div style={{ display:"flex", gap:10 }}>
                 {[{l:"Streak",v:`${member.streak}d 🔥`},{l:"This Month",v:`${member.thisMonth} visits`},{l:"Total",v:`${member.totalVisits} visits`}].map(x => (
                   <div key={x.l} style={{ flex:1, background:"rgba(255,255,255,.08)", borderRadius:10, padding:"10px 8px", textAlign:"center", backdropFilter:"blur(10px)" }}>
@@ -425,7 +574,7 @@ function MemberPortal({ member, onLogout }) {
                 </div>
                 <div style={{ textAlign:"right" }}>
                   <div style={{ fontSize:10, color:"rgba(255,255,255,.6)", textTransform:"uppercase", letterSpacing:"1px" }}>Status</div>
-                  <div style={{ fontSize:13, fontWeight:700, color:"#fff", marginTop:2 }}>● Active</div>
+                  <div style={{ fontSize:13, fontWeight:700, color:isFrozen?"#93c5fd":"#fff", marginTop:2 }}>{isFrozen?"❄️ Frozen":"● Active"}</div>
                 </div>
               </div>
               <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:17, fontWeight:700, color:"rgba(255,255,255,.9)", letterSpacing:3, marginBottom:16 }}>{member.id}</div>
@@ -480,8 +629,8 @@ function MemberPortal({ member, onLogout }) {
                 {[
                   { icon:"💳", label:"Renew Plan",      sub:"Extend membership",    action:()=>setRenew(true), accent:true },
                   { icon:"📲", label:"My QR Code",      sub:"Show to scan at entry",action:()=>setShowQR(true), accent:true },
-                  { icon:"🏋️", label:"Book PT Session", sub:"Schedule with trainer",action:()=>setBook(true)  },
-                  { icon:"📋", label:"Workout Plan",     sub:"Today's exercises",    action:()=>setTab("workout") },
+                  { icon:"💰", label:"Payment History", sub:"View past payments",   action:()=>setTab("payments") },
+                  { icon:"👤", label:"Edit Profile",    sub:"Update your details",  action:()=>setTab("profile") },
                 ].map(a => (
                   <button key={a.label} className="card-hover" onClick={a.action}
                     style={{ background:a.accent?G.bg3:G.bg, border:`1.5px solid ${a.accent?G.accentL:G.border}`, borderRadius:13, padding:"16px 14px", textAlign:"left", cursor:"pointer", transition:".2s", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}>
@@ -608,9 +757,22 @@ function MemberPortal({ member, onLogout }) {
 
             {/* Renew CTA */}
             <button className="btn-primary" onClick={() => setRenew(true)}
-              style={{ width:"100%", background:G.accent, border:"none", borderRadius:13, padding:"16px", fontSize:15, fontWeight:700, color:"#fff", cursor:"pointer", transition:".2s", marginBottom:16, boxShadow:"0 4px 16px rgba(22,163,74,.3)", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+              style={{ width:"100%", background:G.accent, border:"none", borderRadius:13, padding:"16px", fontSize:15, fontWeight:700, color:"#fff", cursor:"pointer", transition:".2s", marginBottom:10, boxShadow:"0 4px 16px rgba(22,163,74,.3)", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
               💳 Renew / Upgrade Plan
             </button>
+
+            {/* Freeze / Unfreeze */}
+            <button onClick={isFrozen ? handleUnfreeze : handleFreeze} disabled={freezing}
+              style={{ width:"100%", background:isFrozen?"#dbeafe":"#eff6ff", border:`1.5px solid ${isFrozen?"#93c5fd":"#bfdbfe"}`, borderRadius:13, padding:"14px", fontSize:14, fontWeight:700, color:isFrozen?"#2563eb":"#3b82f6", cursor:"pointer", transition:".2s", marginBottom:16, display:"flex", alignItems:"center", justifyContent:"center", gap:8, opacity:freezing?.6:1 }}>
+              {freezing ? "Processing..." : isFrozen ? "☀️ Unfreeze Membership" : "❄️ Freeze Membership"}
+            </button>
+            {isFrozen && member.freeze_start && (
+              <div style={{ background:"#eff6ff", border:"1px solid #bfdbfe", borderRadius:10, padding:"12px 14px", marginBottom:16, fontSize:12, color:"#1e40af", lineHeight:1.6 }}>
+                <strong>Frozen since:</strong> {member.freeze_start}<br/>
+                <strong>Days frozen:</strong> {Math.max(0, Math.ceil((Date.now() - new Date(member.freeze_start)) / 864e5))}<br/>
+                When you unfreeze, these days will be added to your expiry date.
+              </div>
+            )}
 
             {/* Upgrade options */}
             <div style={{ fontSize:13, fontWeight:700, color:G.navy, marginBottom:10 }}>Available Plans</div>
@@ -634,89 +796,155 @@ function MemberPortal({ member, onLogout }) {
           </div>
         )}
 
-        {/* ── PT SESSIONS TAB ── */}
-        {tab === "pt" && (
+        {/* ── PAYMENTS TAB ── */}
+        {tab === "payments" && (
           <div className="fade-up">
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
-              <div>
-                <div style={{ fontSize:18, fontWeight:800, color:G.navy }}>PT Sessions</div>
-                <div style={{ fontSize:13, color:G.text3, marginTop:2 }}>With {member.trainer}</div>
+            <div style={{ fontSize:18, fontWeight:800, color:G.navy, marginBottom:4 }}>Payment History</div>
+            <div style={{ fontSize:13, color:G.text3, marginBottom:20 }}>All your transactions</div>
+
+            {/* Summary card */}
+            <div style={{ background:`linear-gradient(135deg,${G.navy},#1a3a28)`, borderRadius:16, padding:"20px", marginBottom:18 }}>
+              <div style={{ display:"flex", gap:12 }}>
+                <div style={{ flex:1, textAlign:"center" }}>
+                  <div style={{ fontSize:24, fontWeight:800, color:"#fff" }}>{payments.length}</div>
+                  <div style={{ fontSize:10, color:"rgba(255,255,255,.45)", fontWeight:600, textTransform:"uppercase", marginTop:2 }}>Payments</div>
+                </div>
+                <div style={{ flex:1, textAlign:"center" }}>
+                  <div style={{ fontSize:24, fontWeight:800, color:G.accent }}>₹{payments.reduce((s,p)=>s+(parseInt(p.amount)||0),0).toLocaleString()}</div>
+                  <div style={{ fontSize:10, color:"rgba(255,255,255,.45)", fontWeight:600, textTransform:"uppercase", marginTop:2 }}>Total Paid</div>
+                </div>
               </div>
-              <button className="btn-primary" onClick={() => setBook(true)}
-                style={{ background:G.accent, border:"none", borderRadius:10, padding:"10px 16px", fontSize:13, fontWeight:700, color:"#fff", cursor:"pointer", boxShadow:"0 3px 12px rgba(22,163,74,.3)", transition:".2s" }}>
-                + Book Session
-              </button>
             </div>
 
-            {member.ptSessions.map((ss, i) => (
-              <div key={i} className="session-row" style={{ background:G.bg, border:`1px solid ${ss.status==="Scheduled"?G.border2:G.border}`, borderRadius:14, padding:"16px", marginBottom:10, boxShadow:"0 1px 4px rgba(0,0,0,.05)", transition:".15s", position:"relative", overflow:"hidden" }}>
-                {ss.status==="Scheduled" && <div style={{ position:"absolute", left:0, top:0, bottom:0, width:3, background:G.accent, borderRadius:"2px 0 0 2px" }}/>}
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:ss.notes?10:0 }}>
-                  <div>
-                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-                      <span style={{ fontSize:14, fontWeight:700, color:G.navy }}>{ss.date} · {ss.time}</span>
-                      <span style={{ background:ss.status==="Completed"?G.bg4:G.bg3, border:`1px solid ${ss.status==="Completed"?G.accentL:G.border2}`, color:ss.status==="Completed"?G.accent:G.accentD, fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:20 }}>
-                        {ss.status==="Completed"?"✓ Done":"📅 Upcoming"}
-                      </span>
-                    </div>
-                    <div style={{ fontSize:12, color:G.text2 }}>{ss.type} · {ss.trainer}</div>
-                  </div>
-                </div>
-                {ss.notes && <div style={{ background:G.bg3, border:`1px solid ${G.border2}`, borderRadius:8, padding:"9px 12px", fontSize:12, color:G.text2, marginTop:8 }}>💬 {ss.notes}</div>}
+            {loadingPay ? (
+              <div style={{ textAlign:"center", padding:40 }}>
+                <div style={{ width:32, height:32, border:"3px solid "+G.border, borderTop:"3px solid "+G.accent, borderRadius:"50%", animation:"spin .7s linear infinite", margin:"0 auto 12px" }}/>
+                <div style={{ fontSize:13, color:G.text3 }}>Loading payments...</div>
               </div>
-            ))}
+            ) : payments.length === 0 ? (
+              <div style={{ textAlign:"center", padding:40, background:G.bg, borderRadius:16, border:`1px solid ${G.border}` }}>
+                <div style={{ fontSize:40, marginBottom:12 }}>💳</div>
+                <div style={{ fontSize:15, fontWeight:700, color:G.navy, marginBottom:4 }}>No payments yet</div>
+                <div style={{ fontSize:13, color:G.text3 }}>Your payment history will appear here</div>
+              </div>
+            ) : (
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                {payments.map((p, i) => (
+                  <div key={i} style={{ background:G.bg, border:`1px solid ${G.border}`, borderRadius:14, padding:"16px", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
+                      <div>
+                        <div style={{ fontSize:14, fontWeight:700, color:G.navy }}>{p.plan || 'Payment'}</div>
+                        <div style={{ fontSize:12, color:G.text3, marginTop:2 }}>{p.date} · {p.mode || 'N/A'}</div>
+                      </div>
+                      <div style={{ textAlign:"right" }}>
+                        <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:16, fontWeight:800, color:G.accent }}>₹{parseInt(p.amount||0).toLocaleString()}</div>
+                        <span style={{ background:p.status==='Paid'?G.bg4:G.yellowBg, border:`1px solid ${p.status==='Paid'?G.accentL:'#fde68a'}`, color:p.status==='Paid'?G.accent:G.yellow, fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:20 }}>{p.status||'Paid'}</span>
+                      </div>
+                    </div>
+                    {p.invoice && (
+                      <div style={{ fontSize:11, color:G.text3, fontFamily:"'JetBrains Mono',monospace" }}>Invoice: {p.invoice}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
-        {/* ── WORKOUT PLAN TAB ── */}
-        {tab === "workout" && (
+        {/* ── PROFILE TAB ── */}
+        {tab === "profile" && (
           <div className="fade-up">
-            <div style={{ fontSize:18, fontWeight:800, color:G.navy, marginBottom:4 }}>Workout Plan</div>
-            <div style={{ fontSize:13, color:G.text3, marginBottom:20 }}>AI-generated by {member.trainer} · {member.workout.weeks} weeks</div>
+            <div style={{ fontSize:18, fontWeight:800, color:G.navy, marginBottom:4 }}>My Profile</div>
+            <div style={{ fontSize:13, color:G.text3, marginBottom:20 }}>View and edit your details</div>
 
-            {/* Goal badges */}
-            <div style={{ display:"flex", gap:8, marginBottom:18, flexWrap:"wrap" }}>
-              {[{l:"Goal",v:member.workout.goal},{l:"Level",v:member.workout.level},{l:"Duration",v:`${member.workout.weeks} Weeks`}].map(x => (
-                <span key={x.l} style={{ background:G.bg4, border:`1.5px solid ${G.accentL}`, borderRadius:20, padding:"6px 14px", fontSize:12, fontWeight:700, color:G.accent }}>
-                  {x.l}: {x.v}
-                </span>
+            {/* Avatar & ID card */}
+            <div style={{ background:G.bg, border:`1px solid ${G.border}`, borderRadius:16, padding:"24px", marginBottom:16, textAlign:"center", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}>
+              <div style={{ width:72, height:72, borderRadius:18, background:G.bg4, border:`3px solid ${G.accentL}`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:24, color:G.accent, margin:"0 auto 12px" }}>{member.init}</div>
+              <div style={{ fontSize:20, fontWeight:800, color:G.navy, marginBottom:4 }}>{member.name}</div>
+              <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:14, fontWeight:600, color:G.text3, marginBottom:8 }}>{member.id}</div>
+              <div style={{ display:"flex", justifyContent:"center", gap:12, flexWrap:"wrap" }}>
+                <span style={{ background:G.bg4, border:`1px solid ${G.accentL}`, color:G.accent, fontSize:11, fontWeight:700, padding:"4px 12px", borderRadius:20 }}>{member.plan}</span>
+                <span style={{ background:isFrozen?"#dbeafe":member.status==='Active'?G.bg4:G.redBg, border:`1px solid ${isFrozen?"#93c5fd":member.status==='Active'?G.accentL:G.redBorder}`, color:isFrozen?"#2563eb":member.status==='Active'?G.accent:G.red, fontSize:11, fontWeight:700, padding:"4px 12px", borderRadius:20 }}>{member.status}</span>
+              </div>
+            </div>
+
+            {/* Read-only info */}
+            <div style={{ background:G.bg, border:`1px solid ${G.border}`, borderRadius:16, padding:"18px", marginBottom:16, boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}>
+              <div style={{ fontSize:13, fontWeight:700, color:G.navy, marginBottom:14 }}>Membership Info</div>
+              {[
+                {l:"Member ID", v:member.id},
+                {l:"Join Date", v:member.joinDate||'—'},
+                {l:"Branch", v:member.branch||'Main'},
+                {l:"Trainer", v:member.trainer||'Not assigned'},
+                {l:"Plan", v:`${member.plan} — Expires ${member.expiry||'—'}`},
+                {l:"Total Visits", v:member.totalVisits||0},
+              ].map(item => (
+                <div key={item.l} style={{ display:"flex", justifyContent:"space-between", padding:"10px 0", borderBottom:`1px solid ${G.border}` }}>
+                  <span style={{ fontSize:12, color:G.text3, fontWeight:600 }}>{item.l}</span>
+                  <span style={{ fontSize:12, color:G.navy, fontWeight:600, textAlign:"right", maxWidth:"60%" }}>{item.v}</span>
+                </div>
               ))}
             </div>
 
-            {/* Weekly schedule */}
-            <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-              {member.workout.days.map((d, i) => {
-                const isRest = d.focus === "Rest";
-                const isOpen = workoutDay === i;
-                return (
-                  <div key={i} style={{ background:G.bg, border:`1.5px solid ${isOpen?G.accentL:G.border}`, borderRadius:14, overflow:"hidden", boxShadow:"0 1px 4px rgba(0,0,0,.05)", transition:".2s" }}>
-                    <div onClick={() => setWDay(isOpen?null:i)}
-                      style={{ padding:"14px 16px", display:"flex", alignItems:"center", gap:12, cursor:"pointer", background:isOpen?G.bg3:"transparent" }}>
-                      <div style={{ width:40, height:40, borderRadius:10, background:isRest?G.bg2:G.bg4, border:`1.5px solid ${isRest?G.border:G.accentL}`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:11, color:isRest?G.text3:G.accent, flexShrink:0 }}>
-                        {i+1}
-                      </div>
-                      <div style={{ flex:1 }}>
-                        <div style={{ fontSize:13, fontWeight:700, color:G.navy }}>{d.day}</div>
-                        <div style={{ fontSize:11, color:G.text3, marginTop:1 }}>{d.focus} · {d.exercises.length} exercises</div>
-                      </div>
-                      <span style={{ fontSize:12, color:G.text3, transition:".2s", transform:isOpen?"rotate(180deg)":"none" }}>▼</span>
+            {/* Editable fields */}
+            <div style={{ background:G.bg, border:`1px solid ${G.border}`, borderRadius:16, padding:"18px", marginBottom:16, boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+                <div style={{ fontSize:13, fontWeight:700, color:G.navy }}>Contact Details</div>
+                {!editing && (
+                  <button onClick={() => { setEditing(true); setEditForm({ phone:member.phone||'', email:member.email||'', emergency_contact:member.emergency_contact||'', emergency_phone:member.emergency_phone||'' }); }}
+                    style={{ background:G.bg3, border:`1.5px solid ${G.accentL}`, borderRadius:8, padding:"6px 14px", fontSize:12, fontWeight:700, color:G.accent, cursor:"pointer" }}>
+                    ✏️ Edit
+                  </button>
+                )}
+              </div>
+
+              {editing ? (
+                <div>
+                  {[
+                    {l:"Phone", k:"phone", ph:"+91 98765 43210", type:"tel"},
+                    {l:"Email", k:"email", ph:"you@example.com", type:"email"},
+                    {l:"Emergency Contact", k:"emergency_contact", ph:"Contact name", type:"text"},
+                    {l:"Emergency Phone", k:"emergency_phone", ph:"+91 ...", type:"tel"},
+                  ].map(f => (
+                    <div key={f.k} style={{ marginBottom:12 }}>
+                      <label style={{ fontSize:11, color:G.text3, fontWeight:700, textTransform:"uppercase", letterSpacing:"1px", display:"block", marginBottom:4 }}>{f.l}</label>
+                      <input value={editForm[f.k]} onChange={e=>setEditForm({...editForm,[f.k]:e.target.value})} type={f.type} placeholder={f.ph}
+                        style={{ width:"100%", background:G.bg2, border:`1.5px solid ${G.border}`, borderRadius:10, padding:"11px 14px", fontSize:14, color:G.navy, outline:"none", fontFamily:"'Sora',sans-serif" }}/>
                     </div>
-                    {isOpen && (
-                      <div className="fade-in" style={{ padding:"0 16px 16px", borderTop:`1px solid ${G.border}` }}>
-                        <div style={{ paddingTop:12, display:"flex", flexDirection:"column", gap:7 }}>
-                          {d.exercises.map((ex, j) => (
-                            <div key={j} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 12px", background:G.bg2, borderRadius:9, border:`1px solid ${G.border}` }}>
-                              <div style={{ width:22, height:22, borderRadius:6, background:G.bg4, border:`1px solid ${G.accentL}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10, fontWeight:700, color:G.accent, flexShrink:0 }}>{j+1}</div>
-                              <span style={{ fontSize:13, color:G.navy, fontWeight:500 }}>{ex}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                  ))}
+                  <div style={{ display:"flex", gap:10, marginTop:4 }}>
+                    <button onClick={handleProfileSave} disabled={saving}
+                      style={{ flex:1, background:G.accent, border:"none", borderRadius:10, padding:"12px", fontSize:14, fontWeight:700, color:"#fff", cursor:"pointer", opacity:saving?.6:1 }}>
+                      {saving ? "Saving..." : "✓ Save Changes"}
+                    </button>
+                    <button onClick={() => setEditing(false)}
+                      style={{ flex:1, background:"none", border:`1.5px solid ${G.border}`, borderRadius:10, padding:"12px", fontSize:14, fontWeight:600, color:G.text2, cursor:"pointer" }}>
+                      Cancel
+                    </button>
                   </div>
-                );
-              })}
+                </div>
+              ) : (
+                <div>
+                  {[
+                    {l:"Phone", v:member.phone||'Not set'},
+                    {l:"Email", v:member.email||'Not set'},
+                    {l:"Emergency Contact", v:member.emergency_contact||'Not set'},
+                    {l:"Emergency Phone", v:member.emergency_phone||'Not set'},
+                  ].map(item => (
+                    <div key={item.l} style={{ display:"flex", justifyContent:"space-between", padding:"10px 0", borderBottom:`1px solid ${G.border}` }}>
+                      <span style={{ fontSize:12, color:G.text3, fontWeight:600 }}>{item.l}</span>
+                      <span style={{ fontSize:12, color:G.navy, fontWeight:600 }}>{item.v}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
+
+            {/* Logout */}
+            <button onClick={onLogout}
+              style={{ width:"100%", background:G.redBg, border:`1.5px solid ${G.redBorder}`, borderRadius:13, padding:"14px", fontSize:14, fontWeight:700, color:G.red, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:8 }}>
+              🚪 Logout
+            </button>
           </div>
         )}
       </div>
@@ -778,21 +1006,28 @@ function MemberPortal({ member, onLogout }) {
           <div className="slide-in" style={{ background:G.bg, borderRadius:"20px 20px 0 0", padding:24, width:"100%", maxWidth:640, maxHeight:"85vh", overflowY:"auto" }}>
             <div style={{ width:40, height:4, borderRadius:2, background:G.border, margin:"0 auto 20px" }}/>
             <div style={{ fontSize:18, fontWeight:800, color:G.navy, marginBottom:4 }}>Renew Membership</div>
-            <div style={{ fontSize:13, color:G.text3, marginBottom:20 }}>Pay securely via Razorpay</div>
+            <div style={{ fontSize:13, color:G.text3, marginBottom:20 }}>Select a plan to renew via Razorpay or UPI</div>
 
-            {[{n:"Monthly",p:1500,d:"30 days"},{n:"Quarterly",p:4000,d:"90 days"},{n:"Yearly",p:14000,d:"365 days + 4 PT sessions"}].map(plan => (
-              <div key={plan.n} className="card-hover" style={{ background:plan.n===member.plan?G.bg3:G.bg, border:`1.5px solid ${plan.n===member.plan?G.accentL:G.border}`, borderRadius:13, padding:"16px", marginBottom:10, cursor:"pointer", transition:".2s", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}
-                onClick={() => { setRenew(false); showToast(`Redirecting to Razorpay for ${plan.n} plan -- ₹${plan.p.toLocaleString()} ✓`); }}>
+            {paying && (
+              <div style={{ textAlign:"center", padding:"20px 0" }}>
+                <div style={{ width:40, height:40, border:"3px solid "+G.border, borderTop:"3px solid "+G.accent, borderRadius:"50%", animation:"spin .7s linear infinite", margin:"0 auto 12px" }}/>
+                <div style={{ fontSize:14, fontWeight:600, color:G.text2 }}>Processing payment...</div>
+              </div>
+            )}
+
+            {!paying && [{name:"Monthly",price:1500,days:30,features:["Gym Access","Locker"]},{name:"Quarterly",price:4000,days:90,features:["Gym Access","Locker","Group Classes"]},{name:"Yearly",price:14000,days:365,features:["Gym Access","4 PT Sessions","Locker","Group Classes","Nutrition"]}].map(plan => (
+              <div key={plan.name} className="card-hover" style={{ background:plan.name===member.plan?G.bg3:G.bg, border:`1.5px solid ${plan.name===member.plan?G.accentL:G.border}`, borderRadius:13, padding:"16px", marginBottom:10, cursor:"pointer", transition:".2s", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}
+                onClick={() => handleRenewPayment(plan)}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                   <div>
                     <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                      <span style={{ fontSize:15, fontWeight:700, color:G.navy }}>{plan.n}</span>
-                      {plan.n===member.plan && <span style={{ background:G.bg4, border:`1px solid ${G.accentL}`, color:G.accent, fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:20 }}>Current</span>}
+                      <span style={{ fontSize:15, fontWeight:700, color:G.navy }}>{plan.name}</span>
+                      {plan.name===member.plan && <span style={{ background:G.bg4, border:`1px solid ${G.accentL}`, color:G.accent, fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:20 }}>Current</span>}
                     </div>
-                    <div style={{ fontSize:12, color:G.text3, marginTop:2 }}>{plan.d}</div>
+                    <div style={{ fontSize:12, color:G.text3, marginTop:2 }}>{plan.days} days</div>
                   </div>
                   <div style={{ textAlign:"right" }}>
-                    <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:20, fontWeight:800, color:G.accent }}>₹{plan.p.toLocaleString()}</div>
+                    <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:20, fontWeight:800, color:G.accent }}>₹{plan.price.toLocaleString()}</div>
                     <div style={{ fontSize:11, color:G.text3 }}>Pay via UPI / Card</div>
                   </div>
                 </div>
@@ -807,54 +1042,9 @@ function MemberPortal({ member, onLogout }) {
         </div>
       )}
 
-      {/* ── BOOK PT MODAL ── */}
-      {showBook && (
-        <div onClick={e=>{ if(e.target===e.currentTarget) setBook(false); }}
-          style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.5)", backdropFilter:"blur(6px)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
-          <div className="slide-in" style={{ background:G.bg, borderRadius:"20px 20px 0 0", padding:24, width:"100%", maxWidth:640 }}>
-            <div style={{ width:40, height:4, borderRadius:2, background:G.border, margin:"0 auto 20px" }}/>
-            <div style={{ fontSize:18, fontWeight:800, color:G.navy, marginBottom:4 }}>Book PT Session</div>
-            <div style={{ fontSize:13, color:G.text3, marginBottom:20 }}>With {member.trainer}</div>
-
-            <label style={{ fontSize:11, color:G.text3, fontWeight:700, textTransform:"uppercase", letterSpacing:"1px", display:"block", marginBottom:6 }}>Date</label>
-            <input type="date" value={bookForm.date} onChange={e=>setBookForm({...bookForm,date:e.target.value})}
-              style={{ width:"100%", background:G.bg2, border:`1.5px solid ${G.border}`, borderRadius:10, padding:"12px 14px", fontSize:14, color:G.navy, marginBottom:14, outline:"none", fontFamily:"'Sora',sans-serif" }}/>
-
-            <label style={{ fontSize:11, color:G.text3, fontWeight:700, textTransform:"uppercase", letterSpacing:"1px", display:"block", marginBottom:6 }}>Time</label>
-            <div style={{ display:"flex", gap:8, marginBottom:14, flexWrap:"wrap" }}>
-              {["6:00 AM","7:00 AM","8:00 AM","5:00 PM","6:00 PM","7:00 PM"].map(t => (
-                <button key={t} onClick={() => setBookForm({...bookForm,time:t})}
-                  style={{ padding:"8px 14px", borderRadius:9, border:`1.5px solid ${bookForm.time===t?G.accent:G.border}`, background:bookForm.time===t?G.bg4:"transparent", color:bookForm.time===t?G.accent:G.text2, fontSize:12, fontWeight:600, cursor:"pointer", transition:".15s" }}>
-                  {t}
-                </button>
-              ))}
-            </div>
-
-            <label style={{ fontSize:11, color:G.text3, fontWeight:700, textTransform:"uppercase", letterSpacing:"1px", display:"block", marginBottom:6 }}>Session Type</label>
-            <div style={{ display:"flex", gap:8, marginBottom:14, flexWrap:"wrap" }}>
-              {["Strength","Cardio","HIIT","Yoga","Assessment"].map(type => (
-                <button key={type} onClick={() => setBookForm({...bookForm,type})}
-                  style={{ padding:"8px 14px", borderRadius:9, border:`1.5px solid ${bookForm.type===type?G.accent:G.border}`, background:bookForm.type===type?G.bg4:"transparent", color:bookForm.type===type?G.accent:G.text2, fontSize:12, fontWeight:600, cursor:"pointer", transition:".15s" }}>
-                  {type}
-                </button>
-              ))}
-            </div>
-
-            <button onClick={() => { setBook(false); showToast(`Session booked for ${bookForm.date||"selected date"} at ${bookForm.time} · Confirmation WhatsApp sent 📱`); }}
-              style={{ width:"100%", background:G.accent, border:"none", borderRadius:12, padding:"15px", fontSize:15, fontWeight:700, color:"#fff", cursor:"pointer", boxShadow:"0 4px 16px rgba(22,163,74,.3)", marginBottom:10 }}>
-              ✓ Confirm Booking
-            </button>
-            <button onClick={() => setBook(false)}
-              style={{ width:"100%", background:"none", border:`1.5px solid ${G.border}`, borderRadius:12, padding:"13px", fontSize:14, fontWeight:600, color:G.text2, cursor:"pointer" }}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* TOAST */}
       {toast && (
-        <div className="pop-in" style={{ position:"fixed", bottom:90, left:"50%", transform:"translateX(-50%)", background:G.navy, borderRadius:12, padding:"13px 20px", fontSize:13, fontWeight:600, color:"#fff", zIndex:200, whiteSpace:"nowrap", boxShadow:"0 8px 32px rgba(0,0,0,.25)", display:"flex", alignItems:"center", gap:8, maxWidth:"90vw", whiteSpace:"normal" }}>
+        <div className="pop-in" style={{ position:"fixed", bottom:90, left:"50%", transform:"translateX(-50%)", background:G.navy, borderRadius:12, padding:"13px 20px", fontSize:13, fontWeight:600, color:"#fff", zIndex:200, boxShadow:"0 8px 32px rgba(0,0,0,.25)", display:"flex", alignItems:"center", gap:8, maxWidth:"90vw", whiteSpace:"normal" }}>
           <span style={{ color:G.accent, fontSize:16 }}>✓</span>{toast}
         </div>
       )}
@@ -867,12 +1057,31 @@ function MemberPortal({ member, onLogout }) {
 // ══════════════════════════════════════════════════════════════════════════════
 export default function MemberPortalApp() {
   const [member, setMember] = useState(null);
+
+  // Restore session from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) setMember(JSON.parse(saved));
+    } catch(e) { /* ignore */ }
+  }, []);
+
+  const handleLogin = (m) => {
+    setMember(m);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(m)); } catch(e) {}
+  };
+
+  const handleLogout = () => {
+    setMember(null);
+    try { localStorage.removeItem(STORAGE_KEY); } catch(e) {}
+  };
+
   return (
     <>
       <style>{css}</style>
       {member
-        ? <MemberPortal member={member} onLogout={() => setMember(null)}/>
-        : <LoginScreen  onLogin={setMember}/>
+        ? <MemberPortal member={member} onLogout={handleLogout}/>
+        : <LoginScreen  onLogin={handleLogin}/>
       }
     </>
   );

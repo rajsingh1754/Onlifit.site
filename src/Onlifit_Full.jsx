@@ -741,16 +741,68 @@ function GymLogin({ onLogin }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function PageDashboard({ toast }) {
-  const { members, attendance, addAttendance, gymUser } = useGym();
+  const { members, attendance, addAttendance, gymUser, gymSettings } = useGym();
   const activeMembers  = members.filter(m=>m.status==='Active').length;
   const expiredMembers = members.filter(m=>m.status==='Expired').length;
   const todayAtt  = attendance.filter(a=>a.date==='Today');
   const insideNow = todayAtt.filter(a=>a.status==='inside');
-  const months = 'JFMAMJJASOND'.split('');
-  const revData = [420,380,510,490,620,580,700,650,720,680,740,820].map((v,i)=>({v,l:months[i]}));
-  const churn = members.filter(m=>m.status==='Active').slice(0,3).map((m,i)=>({...m,days:[14,11,9][i],last:['Mar 3','Mar 6','Mar 8'][i]}));
   const [attInput, setAttInput] = useState('');
   const [attResult, setAttResult] = useState(null);
+  const [payments, setPayments] = useState([]);
+
+  // Load payments for dashboard stats
+  useEffect(()=>{
+    if(!gymUser) return;
+    supabase.from('payments').select('*').eq('gym_id',gymUser.gym_id).order('created_at',{ascending:false}).then(({data})=>{
+      if(data) setPayments(data);
+    });
+  },[gymUser]);
+
+  // Real revenue calculations
+  const today = new Date();
+  const todayStr = today.toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'});
+  const thisMonth = today.getMonth();
+  const thisYear = today.getFullYear();
+  const todayPayments = payments.filter(p=>p.date===todayStr);
+  const todayCollection = todayPayments.reduce((a,p)=>a+(p.amount||0),0);
+  const monthPayments = payments.filter(p=>{try{const d=new Date(p.created_at||p.date);return d.getMonth()===thisMonth&&d.getFullYear()===thisYear;}catch{return false;}});
+  const monthRevenue = monthPayments.reduce((a,p)=>a+(p.amount||0),0);
+  const monthlyTarget = gymSettings.monthlyTarget || 1000000;
+  const targetPct = monthlyTarget>0 ? Math.min(Math.round((monthRevenue/monthlyTarget)*100),100) : 0;
+
+  // Real plan distribution from members
+  const planCounts = members.reduce((acc,m)=>{acc[m.plan]=(acc[m.plan]||0)+1;return acc;},{});
+  const totalMembers = members.length||1;
+  const planDist = ['Monthly','Quarterly','Yearly'].map(p=>({l:p,p:Math.round((planCounts[p]||0)/totalMembers*100)}));
+
+  // Real monthly revenue chart (last 12 months from payments)
+  const months = 'JFMAMJJASOND'.split('');
+  const revData = months.map((_,i)=>{
+    const mPayments = payments.filter(p=>{try{const d=new Date(p.created_at||p.date);return d.getMonth()===i&&d.getFullYear()===thisYear;}catch{return false;}});
+    return {v:Math.max(mPayments.reduce((a,p)=>a+(p.amount||0),0)/1000,0),l:months[i]};
+  });
+  // If no payment data, show placeholder bars
+  const hasRevData = revData.some(d=>d.v>0);
+  const chartData = hasRevData ? revData : [420,380,510,490,620,580,700,650,720,680,740,820].map((v,i)=>({v,l:months[i],dim:true}));
+
+  // Real churn risk — active members with longest attendance gap
+  const churn = members.filter(m=>m.status==='Active').map(m=>{
+    const lastAtt = attendance.filter(a=>a.memberId===m.id).sort((a,b)=>(b.id||'').localeCompare(a.id||''))[0];
+    const lastDate = lastAtt ? lastAtt.date : m.start;
+    const daysAgo = lastAtt && lastAtt.date==='Today' ? 0 : Math.floor((Date.now()-new Date(lastDate+', '+thisYear).getTime())/86400000);
+    return {...m, days:isNaN(daysAgo)||daysAgo<0?999:daysAgo, last:lastDate};
+  }).filter(m=>m.days>=7).sort((a,b)=>b.days-a.days).slice(0,5);
+
+  // Real attendance heatmap — count check-ins per hour today
+  const heatmapData = Array(24).fill(0);
+  todayAtt.forEach(a=>{
+    const match = (a.checkIn||'').match(/(\d+):/);
+    if(match) { let h=parseInt(match[1]); if((a.checkIn||'').toLowerCase().includes('pm')&&h<12)h+=12; if((a.checkIn||'').toLowerCase().includes('am')&&h===12)h=0; heatmapData[h]++; }
+  });
+
+  // Pending dues — expired members who haven't paid
+  const pendingDues = members.filter(m=>m.status==='Expired').length;
+  const expiringSoon = members.filter(m=>m.status==='Active'&&daysUntilExpiry(m.expiry)<=7&&daysUntilExpiry(m.expiry)>=0).length;
 
   const quickCheckin = () => {
     const id = attInput.trim().toUpperCase();
@@ -771,13 +823,13 @@ function PageDashboard({ toast }) {
   return (
     <div className="page-anim">
       <div className="rg-4" style={{marginBottom:16}}>
-        <StatCard label="Today's Collection" value="₹18,240" sub="vs yesterday" trend={{up:true,label:'↑12%'}} icon="💰"/>
-        <StatCard label="Active Members" value={String(activeMembers)} sub="this week" trend={{up:true,label:'↑8'}} icon="👥"/>
-        <StatCard label="Expired Members" value={String(expiredMembers)} sub="this week" dim trend={{up:false,label:'↑5'}} icon="⚠️"/>
+        <StatCard label="Today's Collection" value={`₹${todayCollection.toLocaleString()}`} sub={`${todayPayments.length} payments`} trend={todayPayments.length>0?{up:true,label:`${todayPayments.length} txns`}:undefined} icon="💰"/>
+        <StatCard label="Active Members" value={String(activeMembers)} sub={expiringSoon>0?`${expiringSoon} expiring soon`:''} trend={{up:true,label:`of ${members.length}`}} icon="👥"/>
+        <StatCard label="Expired Members" value={String(expiredMembers)} sub="need renewal" dim trend={expiredMembers>0?{up:false,label:`${expiredMembers} overdue`}:undefined} icon="⚠️"/>
         <StatCard label="Today Check-ins" value={String(todayAtt.length)} sub={`${insideNow.length} still inside`} icon="📅"/>
       </div>
 
-      {/* ── LIVE ATTENDANCE PORTAL -- always visible on dashboard ─────────────── */}
+      {/* ── LIVE ATTENDANCE PORTAL ─────────────── */}
       <div style={{...s.card(16),marginBottom:16,border:`1.5px solid ${insideNow.length>0?G.border2:G.border}`,background:insideNow.length>0?G.bg3:G.bg}}>
         <div style={{...s.flex(0),justifyContent:'space-between',marginBottom:12}}>
           <div style={s.flex(8)}>
@@ -791,7 +843,6 @@ function PageDashboard({ toast }) {
         </div>
 
         <div className="mob-grid-1" style={s.grid('1fr 1fr',16)}>
-          {/* Quick check-in from dashboard */}
           <div>
             <div style={{fontSize:11,fontWeight:700,color:G.text3,textTransform:'uppercase',letterSpacing:'.8px',marginBottom:8}}>Quick Check-in</div>
             <div style={s.flex(8)}>
@@ -803,8 +854,6 @@ function PageDashboard({ toast }) {
               Synced with Member Portal · Members who check-in via QR app appear here instantly
             </div>
           </div>
-
-          {/* Who's inside */}
           <div>
             <div style={{fontSize:11,fontWeight:700,color:G.text3,textTransform:'uppercase',letterSpacing:'.8px',marginBottom:8}}>Currently Inside</div>
             {insideNow.length===0
@@ -824,7 +873,6 @@ function PageDashboard({ toast }) {
           </div>
         </div>
 
-        {/* Portal links strip */}
         <div style={{...s.flex(12),marginTop:14,padding:'9px 12px',background:'#0f172a',borderRadius:9,flexWrap:'wrap',gap:6}}>
           {[
             {icon:'📱',label:'Member Portal',val:`members.onlifit.app/?gym=${gymUser.gym_id}`,clr:'#4ade80'},
@@ -844,12 +892,12 @@ function PageDashboard({ toast }) {
 
       <div className="rg-21" style={{marginBottom:16}}>
         <div style={s.card()}>
-          <SH title="Monthly Revenue" sub="All branches · 2025"/>
-          <BarChart data={revData}/>
+          <SH title="Monthly Revenue" sub={hasRevData?`${thisYear} · from payments`:'Sample data · record payments to see real chart'}/>
+          <BarChart data={chartData}/>
         </div>
         <div style={s.card()}>
-          <SH title="Plan Distribution"/>
-          {[{l:'Monthly',p:48},{l:'Quarterly',p:31},{l:'Yearly',p:21}].map(r=>(
+          <SH title="Plan Distribution" sub={`${members.length} total members`}/>
+          {planDist.map(r=>(
             <div key={r.l} style={{marginBottom:14}}>
               <div style={{...s.flex(0),justifyContent:'space-between',fontSize:13,marginBottom:4}}>
                 <span style={{color:G.text2,fontWeight:500}}>{r.l}</span>
@@ -863,47 +911,40 @@ function PageDashboard({ toast }) {
 
       <div className="rg-2" style={{marginBottom:16}}>
         <div style={s.card()}>
-          <SH title="Branch Revenue" sub="March 2025"/>
-          {[{n:'Koramangala',v:'₹3.12L',p:85},{n:'Indiranagar',v:'₹2.18L',p:60},{n:'Whitefield',v:'₹1.70L',p:45}].map(b=>(
-            <div key={b.n} style={{marginBottom:14}}>
-              <div style={{...s.flex(0),justifyContent:'space-between',fontSize:13,marginBottom:4}}>
-                <span style={{fontWeight:600,color:G.navy}}>{b.n}</span>
-                <span style={{...s.mono,fontWeight:700,color:G.accent}}>{b.v}</span>
-              </div>
-              <Progress pct={b.p} dim={b.p<70}/>
-            </div>
-          ))}
+          <SH title="🕐 Today's Traffic Heatmap" sub="Hourly check-in distribution"/>
+          <Heatmap data={heatmapData}/>
         </div>
         <div style={s.card()}>
-          <SH title="⚡ Churn Risk" right={<Badge danger>{churn.length} at risk</Badge>}/>
+          <SH title="⚡ Churn Risk" right={churn.length>0?<Badge danger>{churn.length} at risk</Badge>:<Badge>All good ✓</Badge>}/>
           <div style={s.col(8)}>
-            {churn.map(m=>(
+            {churn.length===0 ? <div style={{padding:'20px 0',textAlign:'center',fontSize:12,color:G.text3}}>No members at churn risk 🎉</div>
+            : churn.map(m=>(
               <div key={m.name} style={{background:G.bg3,border:`1px solid ${G.border2}`,borderRadius:9,padding:'10px 12px',...s.flex(10),transition:'.15s'}}>
                 <div style={{textAlign:'center',minWidth:40}}>
-                  <div style={{...s.mono,fontSize:18,fontWeight:800,color:G.accent}}>{m.days}d</div>
+                  <div style={{...s.mono,fontSize:18,fontWeight:800,color:m.days>=14?'#dc2626':G.accent}}>{m.days}d</div>
                   <div style={{fontSize:9,color:G.text3,fontWeight:600}}>absent</div>
                 </div>
                 <div style={{flex:1}}>
                   <div style={{fontSize:13,fontWeight:600,color:G.navy}}>{m.name}</div>
                   <div style={{fontSize:11,color:G.text3}}>{m.plan} · Last: {m.last}</div>
                 </div>
-                <Btn variant="ghost" size="xs" onClick={()=>toast(`Reminder sent to ${m.name} 📱`)}>Remind</Btn>
+                <Btn variant="ghost" size="xs" onClick={()=>{const msg=`Hi ${m.name}, we miss you at ${gymUser.gymName}! It's been ${m.days} days since your last visit. Come back strong! 💪`;window.open(`https://wa.me/${(m.phone||'').replace(/[^0-9]/g,'')}?text=${encodeURIComponent(msg)}`,'_blank')}}>📲 Remind</Btn>
               </div>
             ))}
           </div>
         </div>
       </div>
       <div className="mob-grid-2" style={s.grid(4)}>
-        <StatCard label="Pending Dues" value="₹2,34,500" sub="47 members overdue" dim icon="🔴"/>
-        <StatCard label="AI Forecast (Apr)" value="₹8.4L" sub="127 renewals · 94%" dim icon="🔮"/>
+        <StatCard label="Pending Renewals" value={String(pendingDues)} sub={`${pendingDues} expired members`} dim icon="🔴"/>
+        <StatCard label="Month Revenue" value={monthRevenue>0?`₹${(monthRevenue/100000).toFixed(1)}L`:'--'} sub={`${monthPayments.length} payments`} icon="📊"/>
         <div style={{...s.card(),position:'relative',overflow:'hidden'}}>
           <div style={{position:'absolute',top:0,left:0,right:0,height:3,background:`linear-gradient(90deg,${G.accent},#4ade80)`}}/>
           <div style={{fontSize:11,color:G.text3,fontWeight:700,textTransform:'uppercase',marginBottom:8}}>Monthly Target</div>
-          <div style={{fontSize:28,fontWeight:800,color:G.navy}}>₹10L</div>
-          <Progress pct={72}/>
-          <div style={{fontSize:11,color:G.text3,marginTop:6}}>72% achieved · ₹2.8L remaining</div>
+          <div style={{fontSize:28,fontWeight:800,color:G.navy}}>₹{(monthlyTarget/100000).toFixed(0)}L</div>
+          <Progress pct={targetPct}/>
+          <div style={{fontSize:11,color:G.text3,marginTop:6}}>{targetPct}% achieved · ₹{((monthlyTarget-monthRevenue)/100000).toFixed(1)}L remaining</div>
         </div>
-        <StatCard label="Avg Daily Attendance" value="94" sub="Peak 7-9 AM & 6-8 PM" icon="📈"/>
+        <StatCard label="Avg Daily Attendance" value={String(todayAtt.length||Math.round(attendance.length/Math.max(new Set(attendance.map(a=>a.date)).size,1)))} sub="Based on attendance data" icon="📈"/>
       </div>
     </div>
   );
@@ -1790,14 +1831,35 @@ PERSONALITY RULES -- CRITICAL:
 // Keeping these lean but synced with context
 
 function PageRevenue({ toast }) {
-  const { members, staff, trainers, gymSettings } = useGym();
-  const months = 'JFMAMJJASOND'.split('');
-  const annual = [520,480,610,590,720,680,800,750,820,780,840,920].map((v,i)=>({v,l:months[i]}));
+  const { members, staff, trainers, gymSettings, gymUser } = useGym();
+  const [payments, setPayments] = useState([]);
 
-  // Revenue calculations
-  const monthRevenue  = 720000; // ₹7.2L this month (will come from payments DB)
+  useEffect(()=>{
+    if(!gymUser) return;
+    supabase.from('payments').select('*').eq('gym_id',gymUser.gym_id).order('created_at',{ascending:false}).then(({data})=>{
+      if(data) setPayments(data);
+    });
+  },[gymUser]);
+
+  const months = 'JFMAMJJASOND'.split('');
+  const thisYear = new Date().getFullYear();
+  const thisMonth = new Date().getMonth();
+  const monthName = new Date().toLocaleDateString('en-US',{month:'long'});
+
+  // Real annual revenue chart from payments
+  const annual = months.map((_,i)=>{
+    const mPay = payments.filter(p=>{try{const d=new Date(p.created_at||p.date);return d.getMonth()===i&&d.getFullYear()===thisYear;}catch{return false;}});
+    return {v:Math.max(mPay.reduce((a,p)=>a+(p.amount||0),0)/1000,0),l:months[i]};
+  });
+  const hasAnnualData = annual.some(d=>d.v>0);
+  const annualChart = hasAnnualData ? annual : [520,480,610,590,720,680,800,750,820,780,840,920].map((v,i)=>({v,l:months[i],dim:true}));
+
+  // Revenue calculations from real payments
+  const monthPayments = payments.filter(p=>{try{const d=new Date(p.created_at||p.date);return d.getMonth()===thisMonth&&d.getFullYear()===thisYear;}catch{return false;}});
+  const monthRevenue  = monthPayments.reduce((a,p)=>a+(p.amount||0),0);
   const ptRevenue     = trainers.reduce((a,t)=>a+(t.revenue||0),0);
   const totalRevenue  = monthRevenue + ptRevenue;
+  const annualRevenue = payments.filter(p=>{try{return new Date(p.created_at||p.date).getFullYear()===thisYear;}catch{return false;}}).reduce((a,p)=>a+(p.amount||0),0);
 
   // Expense calculations -- read from Settings
   const staffSalary   = staff.reduce((a,s)=>a+(parseInt(s.salary)||0),0);
@@ -1825,15 +1887,15 @@ function PageRevenue({ toast }) {
     <div className="page-anim">
       {/* Top KPIs */}
       <div className="rg-4" style={{marginBottom:16}}>
-        <StatCard label="Total Revenue (Mar)" value={`₹${(totalRevenue/100000).toFixed(1)}L`} trend={{up:true,label:'↑18%'}} icon="💰"/>
-        <StatCard label="Total Expenses (Mar)" value={`₹${(totalExpenses/100000).toFixed(1)}L`} dim icon="💸"/>
-        <StatCard label="Net Profit (Mar)" value={`₹${(netProfit/100000).toFixed(1)}L`} trend={{up:netProfit>0,label:`${profitPct}% margin`}} icon="📈"/>
-        <StatCard label="Annual Revenue" value="₹68L" icon="🏆"/>
+        <StatCard label={`Total Revenue (${monthName.slice(0,3)})`} value={`₹${(totalRevenue/100000).toFixed(1)}L`} trend={{up:true,label:`${monthPayments.length} payments`}} icon="💰"/>
+        <StatCard label={`Total Expenses (${monthName.slice(0,3)})`} value={`₹${(totalExpenses/100000).toFixed(1)}L`} dim icon="💸"/>
+        <StatCard label={`Net Profit (${monthName.slice(0,3)})`} value={`₹${(netProfit/100000).toFixed(1)}L`} trend={{up:netProfit>0,label:`${profitPct}% margin`}} icon="📈"/>
+        <StatCard label="Annual Revenue" value={annualRevenue>0?`₹${(annualRevenue/100000).toFixed(1)}L`:'--'} icon="🏆"/>
       </div>
 
       {/* Revenue vs Expenses P&L */}
       <div style={{...s.card(20),marginBottom:16,background:`linear-gradient(135deg,${G.bg3} 0%,${G.bg} 100%)`,border:`1.5px solid ${G.border2}`}}>
-        <SH title="March 2025 -- P&L Summary" sub="Revenue, Expenses & Net Profit"/>
+        <SH title={`${monthName} ${thisYear} -- P&L Summary`} sub="Revenue, Expenses & Net Profit"/>
         <div className="mob-grid-1" style={s.grid(3,16)}>
           {/* Revenue breakdown */}
           <div style={s.inset(16)}>
@@ -1910,7 +1972,7 @@ function PageRevenue({ toast }) {
 
       {/* Annual chart + branch breakdown */}
       <div className="rg-21" style={{marginBottom:16}}>
-        <div style={s.card()}><SH title="Annual Revenue" right={<Btn variant="ghost" size="sm" onClick={()=>toast('Exporting Excel...')}>↓ Excel</Btn>}/><BarChart data={annual} height={180}/></div>
+        <div style={s.card()}><SH title="Annual Revenue" sub={hasAnnualData?`${thisYear} · from payments`:'Sample data'} right={<Btn variant="ghost" size="sm" onClick={()=>toast('Exporting Excel...')}>↓ Excel</Btn>}/><BarChart data={annualChart} height={180}/></div>
         <div style={s.card()}>
           <SH title="Branch Revenue" sub="March 2025"/>
           {[{n:'Koramangala',v:'₹3.12L',p:85},{n:'Indiranagar',v:'₹2.18L',p:60},{n:'Whitefield',v:'₹1.70L',p:45}].map(b=>(

@@ -246,7 +246,7 @@ async function supaLoadGymData(gymId) {
     supabase.from('plans').select('*').eq('gym_id', gymId),
     supabase.from('payments').select('*').eq('gym_id', gymId).order('created_at', { ascending: false }),
     supabase.from('gym_profiles').select('*').eq('gym_id', gymId).single(),
-    supabase.from('enquiries').select('*').eq('gym_id', gymId).order('created_at', { ascending: false }),
+    supabase.rpc('get_gym_enquiries', { p_gym_id: gymId }),
   ]);
   const mapMember = r => { const status = checkExpiryStatus(r.expiry_date, r.status); return { name:r.name, init:r.initials, id:r.id, phone:r.phone, email:r.email, plan:r.plan, start:r.start_date, expiry:r.expiry_date, status, trainer:r.trainer, visits:r.visits, dob:r.dob }; };
   const mapAttendance = r => ({ id:r.id, memberId:r.member_id, memberName:r.member_name, init:r.initials, checkIn:r.check_in, date:r.date, trainer:r.trainer, method:r.method, status:r.status });
@@ -2677,15 +2677,15 @@ function PageEnquiries({ toast }) {
   const saveEnquiry = async (enq) => {
     setSaving(true);
     const row = { id: enq.id || genId(), gym_id: gymUser.gym_id, name: enq.name, phone: enq.phone || '', email: enq.email || '', source: enq.source || 'Walk-in', interest: enq.interest || 'Monthly', status: enq.status || 'New', assigned_to: enq.assignedTo || '', notes: enq.notes || '', follow_up_date: enq.followUpDate || '', trial_date: enq.trialDate || '', converted_member_id: enq.convertedMemberId || '', updated_at: new Date().toISOString() };
-    if (enq.id) {
-      const { error } = await supabase.from('enquiries').update(row).eq('id', enq.id);
-      if (error) toast('❌ Update failed');
-      else { setEnquiries(prev => prev.map(e => e.id === enq.id ? { ...e, ...enq, updatedAt: row.updated_at } : e)); toast('✅ Enquiry updated'); }
-    } else {
-      const { error } = await supabase.from('enquiries').insert(row);
-      if (error) toast('❌ Save failed');
-      else { const mapped = { id: row.id, name: row.name, phone: row.phone, email: row.email, source: row.source, interest: row.interest, status: row.status, assignedTo: row.assigned_to, notes: row.notes, followUpDate: row.follow_up_date, trialDate: row.trial_date, convertedMemberId: '', createdAt: new Date().toISOString() }; setEnquiries(prev => [mapped, ...prev]); toast('✅ Lead added'); }
-    }
+    const { error } = await supabase.rpc('save_enquiry', {
+      p_id: row.id, p_gym_id: row.gym_id, p_name: row.name, p_phone: row.phone, p_email: row.email,
+      p_source: row.source, p_interest: row.interest, p_status: row.status, p_assigned_to: row.assigned_to,
+      p_notes: row.notes, p_follow_up_date: row.follow_up_date, p_trial_date: row.trial_date,
+      p_converted_member_id: row.converted_member_id,
+    });
+    if (error) { toast('❌ Save failed'); }
+    else if (enq.id) { setEnquiries(prev => prev.map(e => e.id === enq.id ? { ...e, ...enq, updatedAt: row.updated_at } : e)); toast('✅ Enquiry updated'); }
+    else { const mapped = { id: row.id, name: row.name, phone: row.phone, email: row.email, source: row.source, interest: row.interest, status: row.status, assignedTo: row.assigned_to, notes: row.notes, followUpDate: row.follow_up_date, trialDate: row.trial_date, convertedMemberId: '', createdAt: new Date().toISOString() }; setEnquiries(prev => [mapped, ...prev]); toast('✅ Lead added'); }
     setSaving(false); setShowAdd(false); setShowEdit(null);
   };
 
@@ -2696,7 +2696,7 @@ function PageEnquiries({ toast }) {
   };
 
   const deleteEnquiry = async (id) => {
-    const { error } = await supabase.from('enquiries').delete().eq('id', id);
+    const { error } = await supabase.rpc('delete_enquiry', { p_id: id });
     if (error) toast('❌ Delete failed');
     else { setEnquiries(prev => prev.filter(e => e.id !== id)); toast('🗑️ Lead removed'); }
   };

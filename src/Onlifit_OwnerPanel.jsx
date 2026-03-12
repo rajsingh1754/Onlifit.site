@@ -413,7 +413,7 @@ function CredCard({ label, value, mono:isMono=false, copyToast, dim=false }) {
 // Fields: user_id · gym_id · name · email · password_hash · role
 // ═════════════════════════════════════════════════════════════════════════════
 function AddGymModal({ open, onClose, onAdd }) {
-  const blank = { name:"", owner:"", phone:"", email:"", city:"", state:"", plan:"Growth", gstin:"", role:"gym_owner" };
+  const blank = { name:"", owner:"", phone:"", email:"", city:"", state:"", plan:"Growth", gstin:"", role:"gym_owner", password:"" };
   const [f,    setF]    = useState(blank);
   const [step, setStep] = useState(1); // 1=details, 2=credentials
   const [creds, setCreds] = useState(null);
@@ -424,6 +424,7 @@ function AddGymModal({ open, onClose, onAdd }) {
   const validate = () => {
     if (!f.name||!f.owner||!f.phone||!f.email||!f.city||!f.state) return "All required fields must be filled.";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email)) return "Enter a valid email address.";
+    if (!f.password || f.password.length < 6) return "Password must be at least 6 characters.";
     return null;
   };
 
@@ -432,7 +433,7 @@ function AddGymModal({ open, onClose, onAdd }) {
     setErr("");
     const gymId   = genGymId(f.name);
     const userId  = genUserId();
-    const tempPw  = genTempPass();
+    const tempPw  = f.password;
     setCreds({ gymId, userId, tempPw, passwordHash: hashPreview(tempPw) });
     setStep(2);
   };
@@ -480,6 +481,7 @@ function AddGymModal({ open, onClose, onAdd }) {
             <FG label="Owner Full Name *"><Fi value={f.owner} onChange={e=>set("owner",e.target.value)} placeholder="e.g. Rahul Sharma" /></FG>
             <FG label="Phone *"><Fi value={f.phone} onChange={e=>set("phone",e.target.value)} placeholder="+91 98765 43210" /></FG>
             <FG label="Login Email *"><Fi value={f.email} onChange={e=>set("email",e.target.value)} placeholder="owner@gymname.com" /></FG>
+            <FG label="Login Password *"><Fi type="password" value={f.password} onChange={e=>set("password",e.target.value)} placeholder="Min 6 characters" /></FG>
             <FG label="City *"><Fi value={f.city}  onChange={e=>set("city",e.target.value)}  placeholder="e.g. Bangalore" /></FG>
             <FG label="State *"><Fi value={f.state} onChange={e=>set("state",e.target.value)} placeholder="e.g. Karnataka" /></FG>
           </div>

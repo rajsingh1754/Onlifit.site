@@ -144,6 +144,26 @@ export default function ReceptionScanner() {
     return () => clearInterval(t);
   }, []);
 
+  // Auto-refresh members every 30s so newly added members are available for scanning
+  useEffect(() => {
+    if (authState !== "ready" || !gymId) return;
+    const t = setInterval(async () => {
+      try {
+        const { data: members } = await supabase.rpc('get_gym_members', { p_gym_id: gymId });
+        if (members && members.length > 0) {
+          const db = {};
+          members.forEach(r => {
+            const expDate = r.expiry_date ? new Date(r.expiry_date) : null;
+            const daysLeft = expDate ? Math.max(0, Math.ceil((expDate - Date.now()) / 864e5)) : 0;
+            db[r.id] = { id:r.id, name:r.name, init:r.initials||r.name.split(' ').map(w=>w[0]).join(''), plan:r.plan, expiry:r.expiry_date, status:r.status, phone:r.phone, trainer:r.trainer, visits:r.visits||0, daysLeft };
+          });
+          setDB(db);
+        }
+      } catch(e) { /* silent refresh */ }
+    }, 30000);
+    return () => clearInterval(t);
+  }, [authState, gymId]);
+
   // Auto-start camera only after authenticated
   useEffect(() => {
     if (authState !== "ready") return;

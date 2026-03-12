@@ -58,38 +58,78 @@ export default function ReceptionScanner() {
   const [DB, setDB]               = useState({});
   const [gymId, setGymId]         = useState(null);
 
-  // Load members from Supabase for the logged-in gym
+  // Auth gate states
+  const [authState, setAuthState] = useState("checking"); // checking | login | ready
+  const [gymName, setGymName]     = useState("");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPass, setLoginPass]   = useState("");
+  const [loginErr, setLoginErr]     = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  // Load gym data after authentication
+  const loadGymData = async (email) => {
+    try {
+      // Use RPC to bypass RLS (same as dashboard login)
+      const { data: acctJson } = await supabase.rpc('get_gym_account', { p_email: email });
+      const acct = acctJson;
+      if (!acct?.gym_id) { setAuthState("login"); setLoginErr("No gym account found for this email"); return; }
+      setGymId(acct.gym_id);
+      setGymName(acct.gym_name || acct.name || acct.gym_id);
+      const { data: members } = await supabase.from('members').select('*').eq('gym_id', acct.gym_id);
+      if (members && members.length > 0) {
+        const db = {};
+        members.forEach(r => {
+          const expDate = r.expiry_date ? new Date(r.expiry_date) : null;
+          const daysLeft = expDate ? Math.max(0, Math.ceil((expDate - Date.now()) / 864e5)) : 0;
+          db[r.id] = { id:r.id, name:r.name, init:r.initials||r.name.split(' ').map(w=>w[0]).join(''), plan:r.plan, expiry:r.expiry_date, status:r.status, phone:r.phone, trainer:r.trainer, visits:r.visits||0, daysLeft };
+        });
+        setDB(db);
+      }
+      // Load today's attendance
+      const { data: att } = await supabase.from('attendance').select('*').eq('gym_id', acct.gym_id).eq('date', 'Today').order('created_at', { ascending: false });
+      if (att && att.length > 0) {
+        const logEntries = att.map(a => ({
+          id: a.member_id, name: a.member_name, init: a.initials||'', plan: '', time: a.check_in,
+          result: a.status === 'inside' ? 'allowed' : 'allowed',
+        }));
+        setLog(logEntries);
+      }
+      setAuthState("ready");
+    } catch(e) { console.error("[Reception] Load error:", e); setAuthState("login"); setLoginErr("Failed to load gym data"); }
+  };
+
+  // Check existing session on mount
   useEffect(() => {
     (async () => {
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.user) return;
-        const { data: acct } = await supabase.from('gym_accounts').select('gym_id').eq('email', session.user.email).single();
-        if (!acct) return;
-        setGymId(acct.gym_id);
-        const { data: members } = await supabase.from('members').select('*').eq('gym_id', acct.gym_id);
-        if (members && members.length > 0) {
-          const db = {};
-          members.forEach(r => {
-            const expDate = r.expiry_date ? new Date(r.expiry_date) : null;
-            const daysLeft = expDate ? Math.max(0, Math.ceil((expDate - Date.now()) / 864e5)) : 0;
-            db[r.id] = { id:r.id, name:r.name, init:r.initials||r.name.split(' ').map(w=>w[0]).join(''), plan:r.plan, expiry:r.expiry_date, status:r.status, phone:r.phone, trainer:r.trainer, visits:r.visits||0, daysLeft };
-          });
-          setDB(db);
+        if (session?.user) {
+          await loadGymData(session.user.email);
+        } else {
+          setAuthState("login");
         }
-        // Load today's attendance as initial log
-        const today = new Date().toLocaleDateString("en-IN",{year:"numeric",month:"2-digit",day:"2-digit"});
-        const { data: att } = await supabase.from('attendance').select('*').eq('gym_id', acct.gym_id).eq('date', 'Today').order('created_at', { ascending: false });
-        if (att && att.length > 0) {
-          const logEntries = att.map(a => ({
-            id: a.member_id, name: a.member_name, init: a.initials||'', plan: '', time: a.check_in,
-            result: a.status === 'inside' ? 'allowed' : 'allowed',
-          }));
-          setLog(logEntries);
-        }
-      } catch(e) { console.error("[Reception] Supabase load error:", e); }
+      } catch(e) { console.error("[Reception] Session check error:", e); setAuthState("login"); }
     })();
   }, []);
+
+  // Handle login
+  const handleReceptionLogin = async (e) => {
+    e.preventDefault();
+    setLoginErr(""); setLoginLoading(true);
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({ email: loginEmail.trim(), password: loginPass });
+      if (error) { setLoginErr(error.message); setLoginLoading(false); return; }
+      await loadGymData(data.user.email);
+    } catch(e) { setLoginErr(e.message || "Login failed"); }
+    setLoginLoading(false);
+  };
+
+  // Logout
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setAuthState("login"); setGymId(null); setGymName(""); setDB({}); setLog([]);
+    stopCamera();
+  };
 
   // Clock
   useEffect(() => {
@@ -97,11 +137,12 @@ export default function ReceptionScanner() {
     return () => clearInterval(t);
   }, []);
 
-  // Auto-start camera on mount
+  // Auto-start camera only after authenticated
   useEffect(() => {
+    if (authState !== "ready") return;
     startCamera();
     return () => stopCamera();
-  }, []);
+  }, [authState]);
 
   // Auto-clear result after delay
   useEffect(() => {
@@ -255,6 +296,50 @@ export default function ReceptionScanner() {
   return (
     <>
       <style>{css}</style>
+
+      {/* ── CHECKING SESSION ── */}
+      {authState === "checking" && (
+        <div style={{ width:"100vw", height:"100vh", background:"#000", display:"flex", alignItems:"center", justifyContent:"center", flexDirection:"column", gap:16 }}>
+          <div style={{ width:48,height:48,border:"3px solid rgba(255,255,255,.1)",borderTop:"3px solid #16a34a",borderRadius:"50%",animation:"spin .7s linear infinite" }}/>
+          <div style={{ fontSize:14, fontWeight:600, color:"rgba(255,255,255,.5)" }}>Checking session...</div>
+        </div>
+      )}
+
+      {/* ── LOGIN SCREEN ── */}
+      {authState === "login" && (
+        <div style={{ width:"100vw", height:"100vh", background:"#000", display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <form onSubmit={handleReceptionLogin} style={{ width:"100%", maxWidth:400, padding:32, background:"rgba(255,255,255,.04)", border:"1px solid rgba(255,255,255,.1)", borderRadius:20 }}>
+            <div style={{ textAlign:"center", marginBottom:28 }}>
+              <div style={{ width:64,height:64,borderRadius:16,background:"#16a34a",display:"flex",alignItems:"center",justifyContent:"center",fontSize:32,margin:"0 auto 16px" }}>📷</div>
+              <div style={{ fontSize:22, fontWeight:900, color:"#fff", marginBottom:4 }}>Reception Scanner</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.4)" }}>Login with your gym account to start scanning</div>
+            </div>
+            <div style={{ marginBottom:16 }}>
+              <label style={{ fontSize:12, fontWeight:700, color:"rgba(255,255,255,.5)", textTransform:"uppercase", letterSpacing:1, display:"block", marginBottom:6 }}>Email</label>
+              <input type="email" required value={loginEmail} onChange={e => setLoginEmail(e.target.value)}
+                style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid rgba(255,255,255,.15)", background:"rgba(255,255,255,.06)", color:"#fff", fontSize:14, fontFamily:"'Inter',sans-serif", outline:"none" }}
+                placeholder="gym@example.com" />
+            </div>
+            <div style={{ marginBottom:20 }}>
+              <label style={{ fontSize:12, fontWeight:700, color:"rgba(255,255,255,.5)", textTransform:"uppercase", letterSpacing:1, display:"block", marginBottom:6 }}>Password</label>
+              <input type="password" required value={loginPass} onChange={e => setLoginPass(e.target.value)}
+                style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid rgba(255,255,255,.15)", background:"rgba(255,255,255,.06)", color:"#fff", fontSize:14, fontFamily:"'Inter',sans-serif", outline:"none" }}
+                placeholder="••••••••" />
+            </div>
+            {loginErr && <div style={{ background:"rgba(220,38,38,.15)", border:"1px solid rgba(220,38,38,.4)", borderRadius:10, padding:"10px 14px", fontSize:12, color:"#f87171", marginBottom:16 }}>{loginErr}</div>}
+            <button type="submit" disabled={loginLoading}
+              style={{ width:"100%", padding:"13px", borderRadius:12, border:"none", background: loginLoading?"#065f46":"#16a34a", color:"#fff", fontSize:15, fontWeight:800, cursor: loginLoading?"not-allowed":"pointer", fontFamily:"'Inter',sans-serif", transition:".15s" }}>
+              {loginLoading ? "Signing in..." : "🔓 Login & Start Scanner"}
+            </button>
+            <div style={{ textAlign:"center", marginTop:16, fontSize:11, color:"rgba(255,255,255,.25)" }}>
+              Use the same email & password from your gym dashboard
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ── SCANNER (only after auth) ── */}
+      {authState === "ready" && (
       <div style={{ width:"100vw", minHeight:"100vh", background:"#000", display:"flex", flexDirection:"column" }}>
 
         {/* ── TOP BAR ── */}
@@ -262,8 +347,8 @@ export default function ReceptionScanner() {
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
             <div style={{ width:34,height:34,borderRadius:9,background:"#16a34a",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16 }}>💪</div>
             <div>
-              <div style={{ fontSize:14, fontWeight:800, color:"#fff" }}>Onlifit -- Reception</div>
-              <div style={{ fontSize:10, color:"rgba(255,255,255,.4)" }}>Koramangala · AI Scanner Active</div>
+              <div style={{ fontSize:14, fontWeight:800, color:"#fff" }}>Onlifit — Reception</div>
+              <div style={{ fontSize:10, color:"rgba(255,255,255,.4)" }}>{gymName} · {gymId} · AI Scanner Active</div>
             </div>
           </div>
 
@@ -281,6 +366,9 @@ export default function ReceptionScanner() {
             </div>
 
             <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:18, fontWeight:700, color:"#16a34a", letterSpacing:2 }}>{clock}</div>
+
+            {/* Logout */}
+            <button onClick={handleLogout} style={{ background:"rgba(255,255,255,.08)", border:"1px solid rgba(255,255,255,.12)", borderRadius:8, padding:"6px 12px", fontSize:11, fontWeight:700, color:"rgba(255,255,255,.5)", cursor:"pointer", fontFamily:"'Inter',sans-serif" }}>Logout</button>
           </div>
         </div>
 
@@ -574,6 +662,7 @@ export default function ReceptionScanner() {
           </div>
         </div>
       </div>
+      )}
     </>
   );
 }

@@ -3367,8 +3367,8 @@ function NotificationCenter({ notifications, open, onClose, onDismiss, onDismiss
 
 // ─── NAV CONFIG ───────────────────────────────────────────────────────────────
 const NAV = [
-  {section:'Core',    items:[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'members',icon:'👥',label:'Members',badge:3},{id:'attendance',icon:'📅',label:'Attendance',badge:'Live'},{id:'enquiries',icon:'📋',label:'Enquiries'}]},
-  {section:'Finance', items:[{id:'revenue',icon:'💰',label:'Revenue'},{id:'fees',icon:'💳',label:'Fees & Billing',badge:7},{id:'discounts',icon:'🏷️',label:'Discounts'}]},
+  {section:'Core',    items:[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'members',icon:'👥',label:'Members'},{id:'attendance',icon:'📅',label:'Attendance',badge:'Live'},{id:'enquiries',icon:'📋',label:'Enquiries'}]},
+  {section:'Finance', items:[{id:'revenue',icon:'💰',label:'Revenue'},{id:'fees',icon:'💳',label:'Fees & Billing'},{id:'discounts',icon:'🏷️',label:'Discounts'}]},
   {section:'People',  items:[{id:'staff',icon:'🧑‍💼',label:'Staff'},{id:'pt',icon:'🏋️',label:'Personal Training'},{id:'ai',icon:'✦',label:'AI Assistant'}]},
   {section:'Config',  items:[{id:'settings',icon:'⚙️',label:'Settings'}]},
 ];
@@ -3424,6 +3424,7 @@ export default function App() {
   const [trainers,   setTrainersState]   = useState([]);
   const [gymProfile, setGymProfile]      = useState({});
   const [enquiries, setEnquiriesState]   = useState([]);
+  const [pendingPayCount, setPendingPayCount] = useState(0);
   const [gymSettings, setGymSettings]   = useState({
     rent: 0, utilities: 0, equipment: 0,
     marketing: 0, misc: 0, monthlyTarget: 0,
@@ -3442,6 +3443,7 @@ export default function App() {
       setStaffState(data.staff);
       setTrainersState(data.trainers);
       setEnquiriesState(data.enquiries);
+      setPendingPayCount(data.payments.filter(p => p.status === 'Pending').length);
       if (data.profile.gymName) setGymProfile(data.profile);
       setDataLoaded(true);
     })();
@@ -3605,6 +3607,8 @@ export default function App() {
 
   const initials = gymUser.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   const insideCount = attendance.filter(a=>a.date==='Today'&&a.status==='inside').length;
+  const expiringSoon = members.filter(m => { const d = daysUntilExpiry(m.expiry); return d >= 0 && d <= 7 && m.status !== 'Frozen'; }).length;
+  const dynamicBadges = { members: expiringSoon || 0, fees: pendingPayCount || 0 };
 
   const PAGES = {
     dashboard:  <PageDashboard  toast={showToast}/>,
@@ -3666,7 +3670,7 @@ export default function App() {
                     <span style={{flex:1}}>{item.label}</span>
                     {item.id==='attendance'&&insideCount>0
                       ? <span className="sidebar-badge" style={{fontSize:10,fontWeight:700,padding:'1px 7px',borderRadius:20,background:G.bg4,color:G.accent,border:`1px solid ${G.accentL}`,...s.flex(4)}}><LiveDot/>{insideCount}</span>
-                      : item.badge&&<span className="sidebar-badge" style={{fontSize:10,fontWeight:700,padding:'1px 7px',borderRadius:20}}>{item.badge}</span>
+                      : dynamicBadges[item.id]>0&&<span className="sidebar-badge" style={{fontSize:10,fontWeight:700,padding:'1px 7px',borderRadius:20}}>{dynamicBadges[item.id]}</span>
                     }
                   </div>
                 ))}

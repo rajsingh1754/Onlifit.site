@@ -33,8 +33,9 @@ const G = {
 
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap');
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{background:#f9fafb;color:#0f172a;font-family:'Sora',sans-serif;-webkit-font-smoothing:antialiased}
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;touch-action:manipulation}
+  html{height:auto;overflow-x:hidden;overflow-y:scroll;-webkit-overflow-scrolling:touch}
+  body{min-height:100%;overflow-x:hidden;overflow-y:scroll;-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain;background:#f9fafb;color:#0f172a;font-family:'Sora',sans-serif;-webkit-font-smoothing:antialiased}
   ::-webkit-scrollbar{width:4px}
   ::-webkit-scrollbar-thumb{background:#d1fae5;border-radius:4px}
   @keyframes fadeUp   {from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
@@ -61,8 +62,7 @@ const css = `
   .otp-input:focus{border-color:#16a34a !important;box-shadow:0 0 0 3px rgba(22,163,74,.15) !important;outline:none}
   .session-row:hover{background:#f0fdf4 !important}
   .att-chip:hover{transform:scale(1.08)}
-  /* Responsive */
-  *{-webkit-tap-highlight-color:transparent}
+  .app-wrap{-webkit-overflow-scrolling:touch;overflow-y:visible;position:relative}
   @media(max-width:480px){
     .hide-sm{display:none !important}
     .full-sm{width:100% !important;max-width:100% !important}
@@ -253,7 +253,7 @@ function LoginScreen({ onLogin }) {
   const maskedPhone = memberPhone ? memberPhone.slice(0, 4) + '••••' + memberPhone.slice(-3) : '';
 
   return (
-    <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,#0f172a 0%,#0f2d1a 50%,#0a1628 100%)", display:"flex", alignItems:"center", justifyContent:"center", padding:20, position:"relative", overflow:"hidden" }}>
+    <div style={{ minHeight:"100vh", minHeight:"100dvh", background:"linear-gradient(135deg,#0f172a 0%,#0f2d1a 50%,#0a1628 100%)", display:"flex", alignItems:"center", justifyContent:"center", padding:20, position:"relative", overflowX:"hidden", overflowY:"auto" }}>
 
       {/* BG decoration */}
       <div style={{ position:"absolute", top:"-120px", right:"-120px", width:"400px", height:"400px", borderRadius:"50%", background:"rgba(22,163,74,.07)", pointerEvents:"none" }}/>
@@ -536,7 +536,7 @@ function MemberPortal({ member: initialMember, onLogout }) {
   ];
 
   return (
-    <div className="app-wrap" style={{ minHeight:"100vh", background:G.bg2, fontFamily:"'Sora',sans-serif", paddingBottom:80 }}>
+    <div className="app-wrap" style={{ minHeight:"100%", background:G.bg2, fontFamily:"'Sora',sans-serif", paddingBottom:100 }}>
 
       {/* TOP HEADER */}
       <div style={{ background:G.bg, borderBottom:`1px solid ${G.border}`, position:"sticky", top:0, zIndex:50, boxShadow:"0 1px 8px rgba(0,0,0,.06)" }}>
@@ -969,7 +969,7 @@ function MemberPortal({ member: initialMember, onLogout }) {
       </div>
 
       {/* BOTTOM NAV */}
-      <div style={{ position:"fixed", bottom:0, left:0, right:0, background:G.bg, borderTop:`1px solid ${G.border}`, padding:"8px 0 10px", zIndex:50, boxShadow:"0 -2px 12px rgba(0,0,0,.06)" }}>
+      <div style={{ position:"fixed", bottom:0, left:0, right:0, background:G.bg, borderTop:`1px solid ${G.border}`, padding:"8px 0 calc(10px + env(safe-area-inset-bottom, 0px))", zIndex:50, boxShadow:"0 -2px 12px rgba(0,0,0,.06)" }}>
         <div style={{ maxWidth:640, margin:"0 auto", display:"flex", justifyContent:"space-around" }}>
           {TABS.map(t => (
             <button key={t.id} className="nav-tab" onClick={() => setTab(t.id)}

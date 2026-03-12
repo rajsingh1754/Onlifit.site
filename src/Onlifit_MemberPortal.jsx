@@ -80,6 +80,11 @@ const nowTime = () => { const d=new Date(); return `${fmt(d.getHours())}:${fmt(d
 // ══════════════════════════════════════════════════════════════════════════════
 // LOGIN SCREEN
 // ══════════════════════════════════════════════════════════════════════════════
+const TRUSTED_KEY = 'onlifit_trusted_members';
+const getTrusted = () => { try { return JSON.parse(localStorage.getItem(TRUSTED_KEY) || '[]'); } catch { return []; } };
+const addTrusted = (id) => { const t = getTrusted(); if (!t.includes(id)) { t.push(id); localStorage.setItem(TRUSTED_KEY, JSON.stringify(t)); } };
+const isTrusted = (id) => getTrusted().includes(id);
+
 function LoginScreen({ onLogin }) {
   const [step, setStep]     = useState("id");   // id | otp | loading
   const [memberId, setMId]  = useState("");
@@ -149,6 +154,18 @@ function LoginScreen({ onLogin }) {
       if (!data) { setError("Not found. Check your Member ID or phone number."); setSending(false); return; }
       if (!data.phone) { setError("No phone number on file. Contact your gym."); setSending(false); return; }
 
+      const m = await buildMember(data);
+      setFoundMember(m);
+
+      // Trusted device: skip OTP, login directly
+      if (isTrusted(data.id)) {
+        setError("");
+        setStep("loading");
+        setTimeout(() => { onLogin(m); }, 1000);
+        setSending(false);
+        return;
+      }
+
       const e164 = normalizePhone(data.phone);
       setMemberPhone(e164);
 
@@ -164,8 +181,6 @@ function LoginScreen({ onLogin }) {
         return;
       }
 
-      const m = await buildMember(data);
-      setFoundMember(m);
       setError("");
       setOtp(["","","","","",""]);
       setResendTimer(30);
@@ -213,6 +228,7 @@ function LoginScreen({ onLogin }) {
     try {
       const { error: verifyErr } = await supabase.auth.verifyOtp({ phone: memberPhone, token, type: 'sms' });
       if (verifyErr) { setError("Invalid OTP. Please try again."); setSending(false); return; }
+      addTrusted(foundMember.id);
       setError("");
       setStep("loading");
       setTimeout(() => { onLogin(foundMember); }, 1500);

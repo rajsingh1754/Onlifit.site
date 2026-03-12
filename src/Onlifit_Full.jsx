@@ -3476,6 +3476,8 @@ function SupportChatbot({ gymUser, toast }) {
   const [newPriority, setNewPriority] = useState("medium");
   const [newMsg, setNewMsg] = useState("");
   const [loading, setLoading] = useState(false);
+  const [botTyping, setBotTyping] = useState(false);
+  const lastAnswerRef = useRef(null);
   const chatRef = useRef(null);
   const scrollToBottom = () => { if(chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; };
 
@@ -3484,7 +3486,7 @@ function SupportChatbot({ gymUser, toast }) {
       setMessages([{ role:"bot", text:"👋 Hi! I'm **Onlifit Support Bot**. I can help you with:\n\n• Managing members, staff & plans\n• QR scanner & attendance issues\n• Payments & billing questions\n• Technical troubleshooting\n\nType your question or pick a topic below. If I can't help, you can **create a support ticket** for our admin team." }]);
     }
   }, [open]);
-  useEffect(scrollToBottom, [messages, ticketMsgs]);
+  useEffect(scrollToBottom, [messages, ticketMsgs, botTyping]);
 
   // KB search
   const searchKB = (q) => {
@@ -3501,16 +3503,32 @@ function SupportChatbot({ gymUser, toast }) {
     return best;
   };
 
+  // Delayed bot response with typing indicator
+  const addBotResponse = (userText) => {
+    setMessages(prev => [...prev, { role:"user", text:userText }]);
+    setBotTyping(true);
+    const delay = 600 + Math.random() * 600; // 600-1200ms
+    setTimeout(() => {
+      setBotTyping(false);
+      const result = searchKB(userText);
+      let botText;
+      if (result && result.a === lastAnswerRef.current) {
+        botText = "It seems like you're still facing the same issue. I'd recommend **creating a support ticket** so our admin team can help you directly with personalized troubleshooting.";
+      } else if (result) {
+        botText = result.a;
+        lastAnswerRef.current = result.a;
+      } else {
+        botText = "I couldn't find an answer for that. Here are your options:\n\n• Try rephrasing your question\n• **Create a support ticket** — our admin team will respond\n• Check the **AI Assistant** tab for data-related queries";
+      }
+      setMessages(prev => [...prev, { role:"bot", text:botText }]);
+    }, delay);
+  };
+
   const sendMessage = () => {
     const q = input.trim();
-    if (!q) return;
-    const userMsg = { role:"user", text:q };
-    const result = searchKB(q);
-    const botMsg = result
-      ? { role:"bot", text:result.a }
-      : { role:"bot", text:"I couldn't find an answer for that. Here are your options:\n\n• Try rephrasing your question\n• **Create a support ticket** — our admin team will respond\n• Check the **AI Assistant** tab for data-related queries" };
-    setMessages(prev => [...prev, userMsg, botMsg]);
+    if (!q || botTyping) return;
     setInput("");
+    addBotResponse(q);
   };
 
   // Load tickets
@@ -3649,10 +3667,17 @@ function SupportChatbot({ gymUser, toast }) {
                   {m.text.split("\n").map((line,j) => <div key={j}>{renderBold(line)}{j<m.text.split("\n").length-1&&<br/>}</div>)}
                 </div>
               ))}
-              {messages.length>0 && messages.length<=2 && (
+              {botTyping && (
+                <div style={{...cs.msgBot, display:"flex", gap:4, padding:"12px 18px"}}>
+                  <span className="ai-dot" style={{width:7,height:7,borderRadius:"50%",background:G.accent}}/>
+                  <span className="ai-dot" style={{width:7,height:7,borderRadius:"50%",background:G.accent}}/>
+                  <span className="ai-dot" style={{width:7,height:7,borderRadius:"50%",background:G.accent}}/>
+                </div>
+              )}
+              {messages.length>0 && messages.length<=2 && !botTyping && (
                 <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:4}}>
                   {quickTopics.map(t => (
-                    <button key={t.label} onClick={()=>{setInput(t.q); setTimeout(()=>{const r=searchKB(t.q); setMessages(prev=>[...prev,{role:"user",text:t.q},{role:"bot",text:r?r.a:"No result"}]); },50);}}
+                    <button key={t.label} onClick={()=>addBotResponse(t.q)}
                       style={{background:G.bg3,border:`1px solid ${G.border2}`,borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:600,color:G.accent,cursor:"pointer"}}>{t.label}</button>
                   ))}
                 </div>
@@ -3665,10 +3690,10 @@ function SupportChatbot({ gymUser, toast }) {
               </button>
             </div>
             <div style={cs.footer}>
-              <input style={cs.input} value={input} onChange={e=>setInput(e.target.value)} placeholder="Type your question..."
-                onKeyDown={e=>{ if(e.key==="Enter") sendMessage(); }}
+              <input style={cs.input} value={input} onChange={e=>setInput(e.target.value)} placeholder={botTyping?"Bot is typing...":"Type your question..."}
+                onKeyDown={e=>{ if(e.key==="Enter") sendMessage(); }} disabled={botTyping}
                 onFocus={e=>e.target.style.borderColor=G.accent} onBlur={e=>e.target.style.borderColor=G.border} />
-              <button style={cs.sendBtn} onClick={sendMessage}>Send</button>
+              <button style={{...cs.sendBtn,opacity:botTyping?.5:1}} onClick={sendMessage} disabled={botTyping}>Send</button>
             </div>
           </>}
 

@@ -3379,17 +3379,13 @@ export default function App() {
             if (data.is_new) setShowOnboarding(true);
           }
         } else {
-          try {
-            const saved = localStorage.getItem('onlifit_gym_user');
-            if (saved) setGymUser(JSON.parse(saved));
-          } catch {}
+          // No session = not logged in — show login screen
+          localStorage.removeItem('onlifit_gym_user');
         }
       } catch (e) {
-        // Supabase unavailable — try localStorage
-        try {
-          const saved = localStorage.getItem('onlifit_gym_user');
-          if (saved) setGymUser(JSON.parse(saved));
-        } catch {}
+        // Supabase unavailable — still require login
+        console.warn("[Auth] Session check failed:", e.message);
+        localStorage.removeItem('onlifit_gym_user');
       }
       setAuthChecked(true);
     })();

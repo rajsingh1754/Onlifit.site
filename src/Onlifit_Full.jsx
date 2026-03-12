@@ -1424,13 +1424,14 @@ function PageMembers({ toast }) {
     setShowAdd(false);
     setForm({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'Vikram Singh',coupon:''});
     toast(`Member added! Portal: ${portalBase}&member=${id}`);
-    // Persist to Supabase
-    const { error } = await supabase.from('members').insert({
-      id, gym_id: gymUser.gym_id, name: memberData.name, initials: init, phone: memberData.phone,
-      email: memberData.email, dob: memberData.dob, plan: memberData.plan, start_date: startStr, expiry_date: expStr,
-      status: 'Active', trainer: memberData.trainer, visits: 0,
+    // Persist to Supabase via SECURITY DEFINER RPC (bypasses RLS)
+    const { error } = await supabase.rpc('save_gym_member', {
+      p_gym_id: gymUser.gym_id, p_id: id, p_name: memberData.name, p_initials: init,
+      p_phone: memberData.phone||'', p_email: memberData.email||'', p_dob: memberData.dob||'',
+      p_plan: memberData.plan, p_start: startStr, p_expiry: expStr,
+      p_status: 'Active', p_trainer: memberData.trainer||'', p_visits: 0,
     });
-    if (error) toast('⚠️ Supabase save failed – data saved locally');
+    if (error) { console.error('[SaveMember] RPC error:', error); toast('⚠️ Supabase save failed – data saved locally'); }
     setSaving(false);
   };
 
@@ -1446,11 +1447,12 @@ function PageMembers({ toast }) {
     setMembers(prev=>prev.map(m=>m.id===showEdit.id?updated:m));
     setShowEdit(null);
     toast(`${editForm.name} updated ✓`);
-    const { error } = await supabase.from('members').update({
-      name:editForm.name.trim(), initials:updated.init, phone:editForm.phone, email:editForm.email,
-      dob:editForm.dob, plan:editForm.plan, trainer:editForm.trainer, status:editForm.status,
-    }).eq('id',showEdit.id);
-    if (error) toast('⚠️ Supabase update failed – updated locally');
+    const { error } = await supabase.rpc('update_gym_member', {
+      p_id: showEdit.id, p_name: editForm.name.trim(), p_initials: updated.init,
+      p_phone: editForm.phone||'', p_email: editForm.email||'', p_dob: editForm.dob||'',
+      p_plan: editForm.plan, p_trainer: editForm.trainer||'', p_status: editForm.status,
+    });
+    if (error) { console.error('[EditMember] RPC error:', error); toast('⚠️ Supabase update failed – updated locally'); }
     setSaving(false);
   };
 
@@ -2685,7 +2687,12 @@ function PageEnquiries({ toast }) {
     const init = enq.name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
     const newMember = { id: memberId, name: enq.name, init, phone: enq.phone, email: enq.email, plan: enq.interest, start: today, expiry: '', status: 'Active', trainer: enq.assignedTo, visits: 0, dob: '' };
     const dbRow = { id: memberId, gym_id: gymUser.gym_id, name: enq.name, initials: init, phone: enq.phone || '', email: enq.email || '', plan: enq.interest || 'Monthly', start_date: today, expiry_date: '', status: 'Active', trainer: enq.assignedTo || '', visits: 0, dob: '' };
-    const { error } = await supabase.from('members').insert(dbRow);
+    const { error } = await supabase.rpc('save_gym_member', {
+      p_gym_id: gymUser.gym_id, p_id: memberId, p_name: enq.name, p_initials: init,
+      p_phone: enq.phone||'', p_email: enq.email||'', p_dob: '',
+      p_plan: enq.interest||'Monthly', p_start: today, p_expiry: '',
+      p_status: 'Active', p_trainer: enq.assignedTo||'', p_visits: 0,
+    });
     if (error) { toast('❌ Member creation failed'); setSaving(false); return; }
     setMembers(prev => [...prev, newMember]);
     await saveEnquiry({ ...enq, status: 'Converted', convertedMemberId: memberId });

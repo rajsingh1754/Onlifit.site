@@ -1411,6 +1411,14 @@ function PageMembers({ toast }) {
     setSaving(false);
   };
 
+  const deleteMember = async (m) => {
+    if (!window.confirm(`Delete ${m.name} (${m.id})? This will also remove their attendance and payment records. This cannot be undone.`)) return;
+    setMembers(prev => prev.filter(x => x.id !== m.id));
+    toast(`${m.name} deleted ✓`);
+    const { error } = await supabase.rpc('delete_gym_member', { p_id: m.id });
+    if (error) { console.error('[DeleteMember] RPC error:', error); toast('⚠️ Delete failed in database'); }
+  };
+
   return (
     <div className="page-anim">
       <Tabs tabs={filterTabs} active={filter} onChange={setFilter}/>
@@ -1451,6 +1459,7 @@ function PageMembers({ toast }) {
                         <Btn variant="ghost" size="xs" onClick={()=>setShowQR(m)}>QR</Btn>
                         <Btn variant="ghost" size="xs" style={{color:G.accent,borderColor:G.border2}} onClick={()=>setShowPortal(m)}>📱</Btn>
                         <Btn variant="ghost" size="xs" onClick={()=>{const msg=expiryWarn?`Hi ${m.name}, your ${gymUser.gymName} membership expires in ${dExp} day(s) on ${m.expiry}. Please renew to continue.`:`Hi ${m.name}, welcome to ${gymUser.gymName}! Your member ID: ${m.id}`;window.open(`https://wa.me/${(m.phone||'').replace(/[^0-9]/g,'')}?text=${encodeURIComponent(msg)}`,'_blank')}}>💬</Btn>
+                        <Btn variant="ghost" size="xs" style={{color:G.red,borderColor:'#fecaca'}} onClick={()=>deleteMember(m)}>✕</Btn>
                       </div>
                     </td>
                   </tr>
@@ -1510,6 +1519,9 @@ function PageMembers({ toast }) {
           <div className="rg-2"><FG label="Membership Plan"><Fs value={editForm.plan} onChange={e=>setEditForm({...editForm,plan:e.target.value})}><option>Monthly</option><option>Quarterly</option><option>Yearly</option></Fs></FG><FG label="Assign Trainer"><Fi value={editForm.trainer} onChange={e=>setEditForm({...editForm,trainer:e.target.value})}/></FG></div>
           <div className="rg-2"><FG label="Status"><Fs value={editForm.status} onChange={e=>setEditForm({...editForm,status:e.target.value})}><option>Active</option><option>Expired</option><option>Frozen</option></Fs></FG><FG label="Member ID"><Fi value={showEdit.id} disabled style={{opacity:.6}}/></FG></div>
           <MFooter onCancel={()=>setShowEdit(null)} onSave={saveEditMember} saveLabel="✓ Save Changes" saving={saving}/>
+          <div style={{borderTop:`1px solid ${G.border}`,marginTop:12,paddingTop:12}}>
+            <Btn variant="ghost" size="sm" style={{color:G.red,borderColor:'#fecaca',width:'100%'}} onClick={()=>{setShowEdit(null);deleteMember(showEdit);}}>🗑 Delete Member</Btn>
+          </div>
         </div>}
       </Modal>
 

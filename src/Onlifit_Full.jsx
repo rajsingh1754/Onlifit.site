@@ -1006,7 +1006,7 @@ function PageDashboard({ toast }) {
 
 function PageAttendance({ toast }) {
   const { attendance, members, addAttendance, gymUser } = useGym();
-  const [tab, setTab] = useState('live');
+  const [tab, setTab] = useState('log');
   const [gateInput, setGateInput] = useState('');
 
   // Camera refs
@@ -1052,12 +1052,7 @@ function PageAttendance({ toast }) {
     setCamState('idle');
   };
 
-  // Start/stop camera when tab changes
-  useEffect(() => {
-    if (tab === 'live') { startCamera(); }
-    else { stopCamera(); }
-    return () => stopCamera();
-  }, [tab]);
+  // Camera no longer used in attendance page (use Reception portal instead)
 
   // Auto-clear scan result after 5s (7s for blocks so staff has time to act)
   useEffect(() => {
@@ -1232,83 +1227,19 @@ function PageAttendance({ toast }) {
         <StatCard label="Currently Inside" value={String(insideNow.length)} icon="🟢"/>
         <StatCard label="Today Check-ins"  value={String(todayAtt.length)}  icon="📊"/>
         <StatCard label="Not Visited Today" value={String(absent.length)} dim icon="⚠️"/>
-        <StatCard label="Avg Daily" value="94" icon="📈"/>
+        <StatCard label="Avg Daily" value={todayAtt.length>0?String(todayAtt.length):"0"} icon="📈"/>
       </div>
 
-      <Tabs tabs={[{id:'live',label:'📷 QR Scanner'},{id:'log',label:"📋 Today's Log"},{id:'history',label:'📅 History'},{id:'absentee',label:'⚠️ Absentees'}]} active={tab} onChange={setTab}/>
+      <Tabs tabs={[{id:'log',label:"📋 Today's Log"},{id:'manual',label:'✍️ Manual Entry'},{id:'history',label:'📅 History'},{id:'absentee',label:'⚠️ Absentees'}]} active={tab} onChange={setTab}/>
 
-      {/* ── SCANNER TAB ─────────────────────────────────────────────────────── */}
-      {tab==='live' && (
+      {/* ── MANUAL ENTRY TAB ──────────────────────────────────────────────── */}
+      {tab==='manual' && (
         <div className="mob-grid-1" style={s.grid('3fr 2fr', 14)}>
-
-          {/* LEFT COL: Camera + result */}
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-
-            {/* Camera viewport */}
-            <div style={{ ...s.card(0), overflow:'hidden', position:'relative', borderRadius:14, border:`2px solid ${G.border2}` }}>
-              {/* Live camera feed */}
-              <div style={{ position:'relative', width:'100%', paddingTop:'62%', background:'#0f172a' }}>
-                <video ref={videoRef} muted playsInline style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', display: camState==='active'?'block':'none' }}/>
-                <canvas ref={canvasRef} style={{ display:'none' }}/>
-
-                {/* Scan line animation when active */}
-                {camState==='active' && !scanResult && (
-                  <div style={{ position:'absolute', inset:0, pointerEvents:'none' }}>
-                    {/* Corner brackets */}
-                    {[['8%','8%','left','top'],['8%','auto','left','bottom'],['auto','8%','right','top'],['auto','auto','right','bottom']].map(([t,b,l_or_r,pos],i)=>(
-                      <div key={i} style={{ position:'absolute', top:t==='auto'?undefined:'15%', bottom:b==='auto'?undefined:'15%', left:l_or_r==='left'?'10%':undefined, right:l_or_r==='right'?'10%':undefined, width:36, height:36, borderTop:pos==='top'?`3px solid ${G.accent}`:undefined, borderBottom:pos==='bottom'?`3px solid ${G.accent}`:undefined, borderLeft:l_or_r==='left'?`3px solid ${G.accent}`:undefined, borderRight:l_or_r==='right'?`3px solid ${G.accent}`:undefined }}/>
-                    ))}
-                    {/* Scan bar */}
-                    <div style={{ position:'absolute', left:'10%', right:'10%', height:2, background:G.accent, boxShadow:`0 0 8px ${G.accent}`, animation:'scanBar 2s linear infinite', opacity:.8 }}/>
-                  </div>
-                )}
-
-                {/* Processing spinner overlay */}
-                {processing && (
-                  <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,.55)', display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:8 }}>
-                    <div style={{ width:44, height:44, border:`4px solid rgba(255,255,255,.2)`, borderTop:`4px solid ${G.accent}`, borderRadius:'50%', animation:'spin 1s linear infinite' }}/>
-                    <div style={{ color:'#fff', fontWeight:700, fontSize:13 }}>Checking...</div>
-                  </div>
-                )}
-
-                {/* Idle / error states */}
-                {camState==='idle' && (
-                  <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:12 }}>
-                    <div style={{ fontSize:48 }}>📷</div>
-                    <button onClick={startCamera} style={{ background:G.accent, color:'#fff', border:'none', borderRadius:10, padding:'12px 24px', fontWeight:700, cursor:'pointer', fontFamily:"'Inter',sans-serif", fontSize:14 }}>Start Camera</button>
-                    <div style={{ color:'rgba(255,255,255,.5)', fontSize:12 }}>Camera needed for automatic QR scanning</div>
-                  </div>
-                )}
-                {camState==='requesting' && (
-                  <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:8 }}>
-                    <div style={{ color:'#fff', fontSize:14 }}>⏳ Requesting camera access...</div>
-                  </div>
-                )}
-                {camState==='error' && (
-                  <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column', gap:10 }}>
-                    <div style={{ fontSize:40 }}>🚫</div>
-                    <div style={{ color:'#fca5a5', fontSize:13, textAlign:'center', padding:'0 24px' }}>Camera access denied.<br/>Use manual entry below.</div>
-                    <button onClick={startCamera} style={{ background:'rgba(255,255,255,.1)', color:'#fff', border:'1px solid rgba(255,255,255,.2)', borderRadius:8, padding:'8px 18px', cursor:'pointer', fontFamily:"'Inter',sans-serif" }}>Retry</button>
-                  </div>
-                )}
-              </div>
-
-              {/* Camera bar */}
-              <div style={{ padding:'10px 14px', background:G.bg3, borderTop:`1px solid ${G.border}`, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-                <div style={{ display:'flex', alignItems:'center', gap:7 }}>
-                  {camState==='active' ? <><LiveDot/><span style={{ fontSize:12, fontWeight:700, color:G.accent }}>Camera live -- point QR code at camera</span></> : <span style={{ fontSize:12, color:G.text3 }}>Camera off</span>}
-                </div>
-                {camState==='active' && <button onClick={stopCamera} style={{ fontSize:11, color:G.text3, background:'none', border:'none', cursor:'pointer', fontFamily:"'Inter',sans-serif" }}>Stop</button>}
-              </div>
-            </div>
-
-            {/* Camera scan result */}
-            {scanResult && <ResultCard result={scanResult} onClear={()=>{setScanResult(null);lastQRRef.current='';}}/>}
-
-            {/* Manual fallback */}
-            <div style={{ ...s.card(), border:`1px dashed ${G.border2}` }}>
-              <div style={{ fontSize:11, fontWeight:700, color:G.text3, textTransform:'uppercase', letterSpacing:'.7px', marginBottom:10 }}>⌨️ Manual Entry -- no QR / phone forgotten</div>
-              <div style={{ display:'flex', gap:8 }}>
+            {/* Manual check-in */}
+            <div style={s.card()}>
+              <SH title="Manual Check-in" sub="Search by member ID or name"/>
+              <div style={{ display:'flex', gap:8, marginTop:12 }}>
                 <input
                   style={{ ...s.input, flex:1, fontFamily:"'JetBrains Mono',monospace", fontSize:14, fontWeight:600 }}
                   placeholder="Type member ID or name..."
@@ -1318,20 +1249,35 @@ function PageAttendance({ toast }) {
                   onFocus={e=>e.target.style.border=`1.5px solid ${G.accent}`}
                   onBlur={e=>e.target.style.border=`1.5px solid ${G.border}`}
                 />
-                <Btn variant="primary" onClick={()=>doGateCheck()} disabled={gateLoading}>{gateLoading?'...':'Check'}</Btn>
+                <Btn variant="primary" onClick={()=>doGateCheck()} disabled={gateLoading}>{gateLoading?'...':'Check In'}</Btn>
               </div>
-              {gateResult && <div style={{ marginTop:10 }}><ResultCard result={gateResult} onClear={()=>{setGateResult(null);setGateInput('');}}/></div>}
+              {gateResult && <div style={{ marginTop:12 }}><ResultCard result={gateResult} onClear={()=>{setGateResult(null);setGateInput('');}}/></div>}
             </div>
+
+            {/* Blocked members watchlist */}
+            {members.filter(m=>m.status==='Expired'||m.status==='Frozen').length > 0 && (
+              <div style={{ background:'#fef9f0', border:'1.5px solid #fde68a', borderRadius:10, padding:'12px 14px' }}>
+                <div style={{ fontSize:11, fontWeight:700, color:'#92400e', textTransform:'uppercase', letterSpacing:'.6px', marginBottom:8 }}>⚠️ Blocked Members</div>
+                {members.filter(m=>m.status==='Expired'||m.status==='Frozen').map(m=>(
+                  <div key={m.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 0', borderBottom:`1px solid #fde68a` }}>
+                    <Mav init={m.init} size={24}/>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:12, fontWeight:700, color: m.status==='Expired'?'#dc2626':'#d97706' }}>{m.name}</div>
+                      <div style={{ fontSize:10, color:G.text3 }}>{m.status} · exp {m.expiry}</div>
+                    </div>
+                    <Btn variant="ghost" size="xs" onClick={()=>toast(`Reminder sent to ${m.name} 📱`)}>Remind</Btn>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* RIGHT COL: Inside now + today stats */}
           <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-
-            {/* Inside now */}
             <div style={s.card()}>
               <SH title="Inside Right Now" right={<div style={{ display:'flex', alignItems:'center', gap:6 }}><LiveDot/><span style={{ fontSize:13, fontWeight:800, color:G.accent }}>{insideNow.length}</span></div>}/>
               {insideNow.length === 0
-                ? <div style={{ padding:'28px 0', textAlign:'center', color:G.text3, fontSize:13 }}>Nobody checked in yet.<br/><span style={{ fontSize:11 }}>Scan results will appear here instantly.</span></div>
+                ? <div style={{ padding:'28px 0', textAlign:'center', color:G.text3, fontSize:13 }}>Nobody checked in yet.</div>
                 : <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
                     {insideNow.map(a=>(
                       <div key={a.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', borderRadius:9, background:G.bg3, border:`1px solid ${G.border2}` }}>
@@ -1347,7 +1293,6 @@ function PageAttendance({ toast }) {
               }
             </div>
 
-            {/* Stats */}
             <div style={s.card()}>
               <div style={{ fontSize:11, fontWeight:700, color:G.text3, textTransform:'uppercase', letterSpacing:'.7px', marginBottom:12 }}>Today so far</div>
               {[
@@ -1362,23 +1307,6 @@ function PageAttendance({ toast }) {
                 </div>
               ))}
             </div>
-
-            {/* Blocked members watchlist */}
-            {members.filter(m=>m.status==='Expired'||m.status==='Frozen').length > 0 && (
-              <div style={{ background:'#fef9f0', border:'1.5px solid #fde68a', borderRadius:10, padding:'12px 14px' }}>
-                <div style={{ fontSize:11, fontWeight:700, color:'#92400e', textTransform:'uppercase', letterSpacing:'.6px', marginBottom:8 }}>⚠️ Will be blocked if they scan</div>
-                {members.filter(m=>m.status==='Expired'||m.status==='Frozen').map(m=>(
-                  <div key={m.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 0', borderBottom:`1px solid #fde68a` }}>
-                    <Mav init={m.init} size={24}/>
-                    <div style={{ flex:1 }}>
-                      <div style={{ fontSize:12, fontWeight:700, color: m.status==='Expired'?'#dc2626':'#d97706' }}>{m.name}</div>
-                      <div style={{ fontSize:10, color:G.text3 }}>{m.status} · exp {m.expiry}</div>
-                    </div>
-                    <Btn variant="ghost" size="xs" onClick={()=>toast(`Reminder sent to ${m.name} 📱`)}>Remind</Btn>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -1673,7 +1601,7 @@ function PageAI({ toast }) {
     const todayAtt  = attendance.filter(a=>a.date==='Today');
     const insideNow = todayAtt.filter(a=>a.status==='inside');
     const planCounts = ['Monthly','Quarterly','Yearly'].map(p=>({p,n:members.filter(m=>m.plan===p).length}));
-    const topTrainer = SEED_STAFF.map(st=>({...st,mc:members.filter(m=>m.trainer===st.name&&m.status==='Active').length})).sort((a,b)=>b.mc-a.mc)[0];
+    const topTrainer = staff.map(st=>({...st,mc:members.filter(m=>m.trainer===st.name&&m.status==='Active').length})).sort((a,b)=>b.mc-a.mc)[0];
     const churnRisk  = active.filter((_,i)=>i<3).map(m=>m.name);
 
     return `You are Onlifit -- a sharp, confident gym business intelligence assistant for ${gymUser.gymName} in ${gymUser.city}, run by ${gymUser.name}.
@@ -1682,7 +1610,7 @@ TODAY'S LIVE SNAPSHOT:
 • Check-ins today: ${todayAtt.length} | Currently inside: ${insideNow.length} members: ${insideNow.map(a=>a.memberName).join(', ')||'none yet'}
 • Active members: ${active.length} | Expired: ${expired.length} | Frozen: ${frozen.length} | Total: ${members.length}
 • Plan split: ${planCounts.map(x=>`${x.p}(${x.n})`).join(' / ')}
-• Trainers: ${SEED_STAFF.map(st=>st.name).join(', ')} | Busiest: ${topTrainer?.name||'N/A'} with ${topTrainer?.mc||0} active members
+• Trainers: ${staff.map(st=>st.name).join(', ')||'none added yet'} | Busiest: ${topTrainer?.name||'N/A'} with ${topTrainer?.mc||0} active members
 • Churn risk members (absent 7+ days): ${churnRisk.join(', ')||'none'}
 • Expired members needing renewal: ${expired.map(m=>m.name).join(', ')||'none'}
 
@@ -1904,7 +1832,7 @@ function PageRevenue({ toast }) {
     return {v:Math.max(mPay.reduce((a,p)=>a+(p.amount||0),0)/1000,0),l:months[i]};
   });
   const hasAnnualData = annual.some(d=>d.v>0);
-  const annualChart = hasAnnualData ? annual : [520,480,610,590,720,680,800,750,820,780,840,920].map((v,i)=>({v,l:months[i],dim:true}));
+  const annualChart = hasAnnualData ? annual : months.map((_,i)=>({v:0,l:months[i],dim:true}));
 
   // Revenue calculations from real payments
   const monthPayments = payments.filter(p=>{try{const d=new Date(p.created_at||p.date);return d.getMonth()===thisMonth&&d.getFullYear()===thisYear;}catch{return false;}});
@@ -1955,7 +1883,7 @@ function PageRevenue({ toast }) {
             {[
               {l:'Membership Fees', v:monthRevenue,  pct:Math.round(monthRevenue/totalRevenue*100)},
               {l:'PT Sessions',     v:ptRevenue,     pct:Math.round(ptRevenue/totalRevenue*100)},
-              {l:'Supplement Sales',v:18000,         pct:2},
+              {l:'Supplement Sales',v:0,              pct:0},
             ].map(r=>(
               <div key={r.l} style={{marginBottom:12}}>
                 <div style={{...s.flex(0),justifyContent:'space-between',fontSize:12,marginBottom:4}}>
@@ -2039,27 +1967,38 @@ function PageRevenue({ toast }) {
         </div>
       </div>
 
-      {/* Pending dues */}
-      <div style={s.card()}>
-        <SH title="Pending Dues" right={<Badge danger>3 overdue shown</Badge>}/>
-        <div style={{background:G.bg3,border:`1px solid ${G.border2}`,borderRadius:9,padding:'11px 14px',...s.flex(10),marginBottom:12}}>
-          <span style={{fontSize:18}}>⚠️</span>
-          <span style={{fontSize:13,color:G.text2}}>47 members · <strong style={{color:G.navy}}>₹2,34,500</strong> total overdue</span>
-        </div>
-        <div class="tbl-wrap"><table style={{width:'100%',borderCollapse:'collapse'}}>
-          <Th cols={['Member','Due Since','Amount','']}/>
-          <tbody>
-            {[{n:'Suresh Naidu',d:'Mar 1',a:'₹4,500'},{n:'Aisha Khan',d:'Feb 25',a:'₹7,200'},{n:'Vinod Rao',d:'Feb 20',a:'₹3,000'}].map(r=>(
-              <tr key={r.n} className="row-hover" style={{borderBottom:`1px solid ${G.border}`}}>
-                <td style={{padding:'11px 13px',fontWeight:600,color:G.navy}}>{r.n}</td>
-                <td style={{padding:'11px 13px',fontSize:12,color:G.text2}}>{r.d}</td>
-                <td style={{padding:'11px 13px',...s.mono,fontSize:12,fontWeight:700,color:'#dc2626'}}>{r.a}</td>
-                <td style={{padding:'11px 13px'}}><Btn variant="ghost" size="xs" onClick={()=>toast('Reminder sent 📱')}>📱 Remind</Btn></td>
-              </tr>
-            ))}
-          </tbody>
-</table></div>
-      </div>
+      {/* Pending dues -- computed from expired members */}
+      {(() => {
+        const overdue = members.filter(m => m.status === 'Expired');
+        const totalDue = overdue.reduce((a,m) => a + (parseInt(m.fees) || 0), 0);
+        return (
+          <div style={s.card()}>
+            <SH title="Pending Dues" right={overdue.length > 0 ? <Badge danger>{overdue.length} overdue</Badge> : null}/>
+            {overdue.length === 0
+              ? <div style={{textAlign:'center',padding:'32px 0',fontSize:14,color:G.text3}}>No overdue members. All dues cleared! 🎉</div>
+              : <>
+                  <div style={{background:G.bg3,border:`1px solid ${G.border2}`,borderRadius:9,padding:'11px 14px',...s.flex(10),marginBottom:12}}>
+                    <span style={{fontSize:18}}>⚠️</span>
+                    <span style={{fontSize:13,color:G.text2}}>{overdue.length} members · <strong style={{color:G.navy}}>₹{totalDue.toLocaleString('en-IN')}</strong> total overdue</span>
+                  </div>
+                  <div className="tbl-wrap"><table style={{width:'100%',borderCollapse:'collapse'}}>
+                    <Th cols={['Member','Expiry','Plan','']}/>
+                    <tbody>
+                      {overdue.slice(0,10).map(m=>(
+                        <tr key={m.id} className="row-hover" style={{borderBottom:`1px solid ${G.border}`}}>
+                          <td style={{padding:'11px 13px',fontWeight:600,color:G.navy}}>{m.name}</td>
+                          <td style={{padding:'11px 13px',fontSize:12,color:G.text2}}>{m.expiry||'--'}</td>
+                          <td style={{padding:'11px 13px',fontSize:12,color:G.text2}}>{m.plan||'--'}</td>
+                          <td style={{padding:'11px 13px'}}><Btn variant="ghost" size="xs" onClick={()=>toast(`Reminder sent to ${m.name} 📱`)}>📱 Remind</Btn></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table></div>
+                </>
+            }
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -3463,8 +3402,8 @@ export default function App() {
   const [gymProfile, setGymProfile]      = useState({});
   const [enquiries, setEnquiriesState]   = useState([]);
   const [gymSettings, setGymSettings]   = useState({
-    rent: 85000, utilities: 22000, equipment: 15000,
-    marketing: 18000, misc: 12000, monthlyTarget: 1000000,
+    rent: 0, utilities: 0, equipment: 0,
+    marketing: 0, misc: 0, monthlyTarget: 0,
   });
 
   // Load gym data from Supabase after login
@@ -3475,11 +3414,11 @@ export default function App() {
       const data = await supaLoadGymData(gymUser.gym_id);
       if (cancelled) return;
       // Use Supabase data if available, else fall back to SEED data
-      setMembersState(data.members.length ? data.members : SEED_MEMBERS);
-      setAttendanceState(data.attendance.length ? data.attendance : SEED_ATTENDANCE);
-      setStaffState(data.staff.length ? data.staff : SEED_STAFF);
-      setTrainersState(data.trainers.length ? data.trainers : SEED_TRAINERS);
-      setEnquiriesState(data.enquiries.length ? data.enquiries : SEED_ENQUIRIES);
+      setMembersState(data.members);
+      setAttendanceState(data.attendance);
+      setStaffState(data.staff);
+      setTrainersState(data.trainers);
+      setEnquiriesState(data.enquiries);
       if (data.profile.gymName) setGymProfile(data.profile);
       setDataLoaded(true);
     })();

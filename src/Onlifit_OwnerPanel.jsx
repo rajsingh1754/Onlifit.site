@@ -1216,17 +1216,31 @@ function Panel({ onLogout }) {
   const doAddGym = async (newGym, creds) => {
     try {
       // 1. Create Supabase Auth user so gym owner can login
+      let authUserId = creds.userId;
       const { data: authData, error: authErr } = await supabase.auth.signUp({
         email: creds.email,
         password: creds.tempPw,
         options: { data: { gym_id: newGym.id, name: creds.ownerName, role: newGym.role || 'gym_owner' } }
       });
       if (authErr) {
-        console.error("[OwnerPanel] Auth signup error:", authErr);
-        toast$(`Auth error: ${authErr.message}`, "error");
-        return;
+        // If user already exists, sign in to get their ID and proceed
+        if (authErr.message?.includes('already') || authErr.message?.includes('exists')) {
+          const { data: loginData, error: loginErr } = await supabase.auth.signInWithPassword({
+            email: creds.email, password: creds.tempPw
+          });
+          if (loginErr) {
+            toast$(`Auth error: user exists but password doesn't match. Delete user in Supabase Auth first.`, "error");
+            return;
+          }
+          authUserId = loginData?.user?.id || creds.userId;
+        } else {
+          console.error("[OwnerPanel] Auth signup error:", authErr);
+          toast$(`Auth error: ${authErr.message}`, "error");
+          return;
+        }
+      } else {
+        authUserId = authData?.user?.id || creds.userId;
       }
-      const authUserId = authData?.user?.id || creds.userId;
 
       // 2. Re-login as admin BEFORE inserts (signUp switches session to new user)
       await new Promise(r => setTimeout(r, 6000));

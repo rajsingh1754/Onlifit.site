@@ -1222,27 +1222,31 @@ function Panel({ onLogout }) {
         password: creds.tempPw,
         options: { data: { gym_id: newGym.id, name: creds.ownerName, role: newGym.role || 'gym_owner' } }
       });
+
       if (authErr) {
-        // If user already exists, sign in to get their ID and proceed
-        if (authErr.message?.includes('already') || authErr.message?.includes('exists')) {
-          const { data: loginData, error: loginErr } = await supabase.auth.signInWithPassword({
-            email: creds.email, password: creds.tempPw
-          });
-          if (loginErr) {
-            toast$(`Auth error: user exists but password doesn't match. Delete user in Supabase Auth first.`, "error");
-            return;
-          }
-          authUserId = loginData?.user?.id || creds.userId;
-        } else {
-          console.error("[OwnerPanel] Auth signup error:", authErr);
-          toast$(`Auth error: ${authErr.message}`, "error");
+        console.error("[OwnerPanel] Auth signup error:", authErr);
+        toast$(`Auth error: ${authErr.message}`, "error");
+        return;
+      }
+
+      // Supabase returns a user with no identities if email already exists (email confirm off)
+      const isExisting = authData?.user && (!authData.user.identities || authData.user.identities.length === 0);
+      if (isExisting) {
+        // User already exists — sign in with provided password to get their ID
+        await new Promise(r => setTimeout(r, 6000));
+        const { data: loginData, error: loginErr } = await supabase.auth.signInWithPassword({
+          email: creds.email, password: creds.tempPw
+        });
+        if (loginErr) {
+          toast$(`User already exists with this email. Either use the same password or delete the user in Supabase Auth.`, "error");
           return;
         }
+        authUserId = loginData?.user?.id || creds.userId;
       } else {
         authUserId = authData?.user?.id || creds.userId;
       }
 
-      // 2. Re-login as admin BEFORE inserts (signUp switches session to new user)
+      // 2. Re-login as admin BEFORE inserts (signUp/signIn switches session)
       await new Promise(r => setTimeout(r, 6000));
       const storedPw = sessionStorage.getItem('onlifit_admin_pw');
       if (storedPw) {

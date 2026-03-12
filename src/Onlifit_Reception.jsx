@@ -69,33 +69,40 @@ export default function ReceptionScanner() {
   // Load gym data after authentication
   const loadGymData = async (email) => {
     try {
-      // Use RPC to bypass RLS (same as dashboard login)
-      const { data: acctJson } = await supabase.rpc('get_gym_account', { p_email: email });
+      // Use RPC to bypass RLS
+      const { data: acctJson, error: acctErr } = await supabase.rpc('get_gym_account', { p_email: email });
+      if (acctErr) { console.error("[Reception] get_gym_account error:", acctErr); setAuthState("login"); setLoginErr("Failed to load gym account: " + acctErr.message); return; }
       const acct = acctJson;
       if (!acct?.gym_id) { setAuthState("login"); setLoginErr("No gym account found for this email"); return; }
       setGymId(acct.gym_id);
       setGymName(acct.gym_name || acct.name || acct.gym_id);
-      const { data: members } = await supabase.from('members').select('*').eq('gym_id', acct.gym_id);
-      if (members && members.length > 0) {
+
+      // Use RPC to fetch members (bypasses RLS)
+      const { data: members, error: memErr } = await supabase.rpc('get_gym_members', { p_gym_id: acct.gym_id });
+      if (memErr) console.warn("[Reception] get_gym_members RPC failed, trying direct:", memErr.message);
+      const memberList = memErr ? (await supabase.from('members').select('*').eq('gym_id', acct.gym_id)).data : members;
+      if (memberList && memberList.length > 0) {
         const db = {};
-        members.forEach(r => {
+        memberList.forEach(r => {
           const expDate = r.expiry_date ? new Date(r.expiry_date) : null;
           const daysLeft = expDate ? Math.max(0, Math.ceil((expDate - Date.now()) / 864e5)) : 0;
           db[r.id] = { id:r.id, name:r.name, init:r.initials||r.name.split(' ').map(w=>w[0]).join(''), plan:r.plan, expiry:r.expiry_date, status:r.status, phone:r.phone, trainer:r.trainer, visits:r.visits||0, daysLeft };
         });
         setDB(db);
       }
-      // Load today's attendance
-      const { data: att } = await supabase.from('attendance').select('*').eq('gym_id', acct.gym_id).eq('date', 'Today').order('created_at', { ascending: false });
-      if (att && att.length > 0) {
-        const logEntries = att.map(a => ({
-          id: a.member_id, name: a.member_name, init: a.initials||'', plan: '', time: a.check_in,
-          result: a.status === 'inside' ? 'allowed' : 'allowed',
-        }));
-        setLog(logEntries);
-      }
+      // Load today's attendance (non-critical, don't block on error)
+      try {
+        const { data: att } = await supabase.from('attendance').select('*').eq('gym_id', acct.gym_id).eq('date', 'Today').order('created_at', { ascending: false });
+        if (att && att.length > 0) {
+          const logEntries = att.map(a => ({
+            id: a.member_id, name: a.member_name, init: a.initials||'', plan: '', time: a.check_in,
+            result: a.status === 'inside' ? 'allowed' : 'allowed',
+          }));
+          setLog(logEntries);
+        }
+      } catch(ae) { console.warn("[Reception] Attendance load skipped:", ae); }
       setAuthState("ready");
-    } catch(e) { console.error("[Reception] Load error:", e); setAuthState("login"); setLoginErr("Failed to load gym data"); }
+    } catch(e) { console.error("[Reception] Load error:", e); setAuthState("login"); setLoginErr("Failed to load gym data: " + (e.message||e)); }
   };
 
   // Check existing session on mount

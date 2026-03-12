@@ -1141,24 +1141,21 @@ function Panel({ onLogout }) {
   const [clock,     setClock]     = useState("");
   const [loading,   setLoading]   = useState(true);
 
-  // Load gyms from Supabase
+  // Load gyms from Supabase via SECURITY DEFINER RPC (bypasses RLS)
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await supabase.from('gym_accounts').select('*');
-        if (data && data.length > 0) {
-          const mapped = data.map(g => ({
+        const { data, error } = await supabase.rpc('get_all_gym_accounts');
+        if (error) { console.error("[OwnerPanel] RPC error:", error); setGyms([]); setLoading(false); return; }
+        const rows = Array.isArray(data) ? data : (data ? JSON.parse(data) : []);
+        if (rows.length > 0) {
+          const mapped = rows.map(g => ({
             id: g.gym_id, name: g.gym_name, owner: g.name, email: g.email,
-            phone: '', city: g.city, state: '', branches: 1, members: 0,
+            phone: '', city: g.city, state: '', branches: 1, members: g.member_count || 0,
             status: 'active', plan: 'Growth', mrr: 2999, lastPaid: '',
             nextDue: '', att: 0, joined: g.created_at ? new Date(g.created_at).toLocaleDateString("en-IN",{month:"short",day:"numeric",year:"numeric"}) : '',
             gstin: '', role: g.role,
           }));
-          // Enrich with member counts and payment data
-          for (const gym of mapped) {
-            const { count } = await supabase.from('members').select('*', { count: 'exact', head: true }).eq('gym_id', gym.id);
-            gym.members = count || 0;
-          }
           setGyms(mapped);
         } else {
           setGyms([]);
@@ -1208,7 +1205,7 @@ function Panel({ onLogout }) {
       setGyms(gs=>gs.filter(g=>g.id!==gym.id));
       toast$(`${gym.name} permanently deleted.`, "danger");
       // Delete from Supabase
-      try { await supabase.from('gym_accounts').delete().eq('gym_id', gym.id); } catch(e) { console.error(e); }
+      try { await supabase.rpc('delete_gym_account', { p_gym_id: gym.id }); } catch(e) { console.error(e); }
     }
     setConfirm(null);
   };

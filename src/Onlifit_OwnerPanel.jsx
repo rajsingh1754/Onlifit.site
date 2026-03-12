@@ -517,30 +517,7 @@ function AddGymModal({ open, onClose, onAdd }) {
             </div>
           )}
 
-          {/* Supabase schema preview */}
-          <div style={{ ...inset(), marginBottom:14, background:"#0f172a", border:`1px solid #1e293b` }}>
-            <div style={{ ...fl(8), marginBottom:8 }}>
-              <span style={{ fontSize:13 }}>🗄</span>
-              <span style={{ fontSize:11, fontWeight:700, color:"#94a3b8", textTransform:"uppercase", letterSpacing:".8px" }}>Supabase -- What gets created on save</span>
-            </div>
-            <div style={{ ...col(4) }}>
-              {[
-                ["users table",   `user_id: usr_xxxxxxxx  |  name: "${f.owner||"Owner Name"}"  |  email: "${f.email||"owner@gym.com"}"  |  password_hash: bcrypt(temp_password)  |  role: "${f.role}"`],
-                ["gyms table",    `gym_id: GYM-XXX-000  |  user_id → users.user_id  |  name: "${f.name||"Gym Name"}"  |  city: "${f.city||"City"}"  |  plan: "${f.plan}"  |  status: "active"`],
-                ["members table", `member_id: IQ-XXX-0001  |  gym_id → gyms.gym_id  |  name  |  phone  |  plan  |  status  |  qr_token`],
-                ["attendance",    `att_id  |  gym_id → gyms.gym_id  |  member_id  |  checked_in_at  |  method: "QR"`],
-                ["payments",      `pay_id  |  gym_id → gyms.gym_id  |  member_id  |  amount  |  status  |  razorpay_id`],
-              ].map(([table, row])=>(
-                <div key={table} style={{ marginBottom:6 }}>
-                  <div style={{ fontSize:10, fontWeight:700, color:"#4ade80", marginBottom:2 }}>→ {table}</div>
-                  <div style={{ fontSize:10, color:"#64748b", ...mono, wordBreak:"break-all", lineHeight:1.5 }}>{row}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ fontSize:10, color:"#334155", marginTop:8, fontStyle:"italic" }}>
-              Row-Level Security (RLS) ensures each gym_id can only access its own rows. gym_id is the tenant key.
-            </div>
-          </div>
+
 
           {err && <div style={{ fontSize:12, color:G.red, marginBottom:10 }}>⚠ {err}</div>}
 

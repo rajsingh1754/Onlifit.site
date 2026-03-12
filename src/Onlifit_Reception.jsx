@@ -56,6 +56,7 @@ export default function ReceptionScanner() {
   const [tab, setTab]             = useState("scanner"); // scanner | log
   const [aiThinking, setAiThink]  = useState(false);
   const [DB, setDB]               = useState({});
+  const dbRef                     = useRef({});
   const [gymId, setGymId]         = useState(null);
 
   // Auth gate states
@@ -137,6 +138,9 @@ export default function ReceptionScanner() {
     setAuthState("login"); setGymId(null); setGymName(""); setDB({}); setLog([]);
     stopCamera();
   };
+
+  // Keep dbRef in sync with DB state so scanFrame callback always has latest data
+  useEffect(() => { dbRef.current = DB; }, [DB]);
 
   // Clock
   useEffect(() => {
@@ -276,7 +280,7 @@ export default function ReceptionScanner() {
     // Simulate 600ms AI processing
     setTimeout(async () => {
       setAiThink(false);
-      const member = DB[raw.trim()];
+      const member = dbRef.current[raw.trim()];
 
       if (!member) {
         setResult({ type:"notfound", raw });

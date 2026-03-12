@@ -1431,7 +1431,8 @@ function PageMembers({ toast }) {
       p_plan: memberData.plan, p_start: startStr, p_expiry: expStr,
       p_status: 'Active', p_trainer: memberData.trainer||'', p_visits: 0,
     });
-    if (error) { console.error('[SaveMember] RPC error:', error); toast('⚠️ Supabase save failed – data saved locally'); }
+    if (error) { console.error('[SaveMember] RPC error:', JSON.stringify(error)); toast('⚠️ Supabase save failed: ' + (error.message||'unknown')); }
+    else { console.log('[SaveMember] ✅ Saved to Supabase:', id); }
     setSaving(false);
   };
 
@@ -1452,7 +1453,8 @@ function PageMembers({ toast }) {
       p_phone: editForm.phone||'', p_email: editForm.email||'', p_dob: editForm.dob||'',
       p_plan: editForm.plan, p_trainer: editForm.trainer||'', p_status: editForm.status,
     });
-    if (error) { console.error('[EditMember] RPC error:', error); toast('⚠️ Supabase update failed – updated locally'); }
+    if (error) { console.error('[EditMember] RPC error:', JSON.stringify(error)); toast('⚠️ Supabase update failed: ' + (error.message||'unknown')); }
+    else { console.log('[EditMember] ✅ Updated in Supabase:', showEdit.id); }
     setSaving(false);
   };
 

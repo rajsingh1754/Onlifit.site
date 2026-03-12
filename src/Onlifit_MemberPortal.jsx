@@ -457,6 +457,8 @@ function MemberPortal({ member: initialMember, onLogout }) {
   const [editForm, setEditForm] = useState({ phone: member.phone||'', email: member.email||'', emergency_contact: member.emergency_contact||'', emergency_phone: member.emergency_phone||'' });
   const [saving, setSaving]     = useState(false);
   const [freezing, setFreezing] = useState(false);
+  const [gymPlans, setGymPlans] = useState([]);
+  const [showBook, setBook]     = useState(false);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3500); };
 
@@ -482,7 +484,7 @@ function MemberPortal({ member: initialMember, onLogout }) {
     } catch(e) { /* silent */ }
   };
 
-  // Load payment history
+  // Load payment history + gym plans
   useEffect(() => {
     (async () => {
       setLoadingPay(true);
@@ -492,15 +494,21 @@ function MemberPortal({ member: initialMember, onLogout }) {
         if (data) setPayments(data);
       } catch(e) { /* silent */ }
       setLoadingPay(false);
+      // Load gym plans
+      try {
+        const { data: plansJson } = await supabase.rpc('get_gym_plans', { p_gym_id: member.gym_id });
+        const plans = Array.isArray(plansJson) ? plansJson : (plansJson ? JSON.parse(plansJson) : []);
+        if (plans.length > 0) setGymPlans(plans);
+      } catch(e) { /* silent */ }
     })();
   }, [member.id]);
 
   // ── Razorpay Renewal ──
   const handleRenewPayment = async (plan) => {
     const rzpKey = import.meta.env.VITE_RAZORPAY_KEY_ID;
-    if (!rzpKey) {
-      // Fallback: record as cash payment for demo
-      await recordRenewal(plan, 'Cash', null);
+    if (!rzpKey || !window.Razorpay) {
+      // No Razorpay configured — show WhatsApp message to gym
+      showToast('💬 Payment gateway not configured. Contact your gym to renew.');
       return;
     }
     setPaying(true);
@@ -597,7 +605,10 @@ function MemberPortal({ member: initialMember, onLogout }) {
   };
 
   const isFrozen = member.status === 'Frozen';
-  const pct = Math.round((member.daysLeft / (member.plan==="Yearly"?365:member.plan==="Quarterly"?90:30)) * 100);
+  const DEFAULT_PLANS = [{name:"Monthly",price:1500,days:30},{name:"Quarterly",price:4000,days:90},{name:"Yearly",price:14000,days:365}];
+  const activePlans = gymPlans.length > 0 ? gymPlans : DEFAULT_PLANS;
+  const currentPlanDays = activePlans.find(p => p.name === member.plan)?.days || 30;
+  const pct = Math.round((member.daysLeft / currentPlanDays) * 100);
   const urgent = member.daysLeft < 30 && !isFrozen;
 
   const TABS = [
@@ -868,7 +879,7 @@ function MemberPortal({ member: initialMember, onLogout }) {
 
             {/* Upgrade options */}
             <div style={{ fontSize:13, fontWeight:700, color:G.navy, marginBottom:10 }}>Available Plans</div>
-            {[{name:"Monthly",price:1500,days:30,features:["Gym Access","Locker"]},{name:"Quarterly",price:4000,days:90,features:["Gym Access","Locker","Group Classes"]},{name:"Yearly",price:14000,days:365,features:["Gym Access","4 PT Sessions","Locker","Group Classes","Nutrition"]}].map(p => (
+            {activePlans.map(p => (
               <div key={p.name} className="card-hover" style={{ background:p.name===member.plan?G.bg3:G.bg, border:`1.5px solid ${p.name===member.plan?G.accentL:G.border}`, borderRadius:13, padding:"16px", marginBottom:10, boxShadow:"0 1px 4px rgba(0,0,0,.05)", transition:".2s", cursor:"pointer" }} onClick={() => setRenew(true)}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
                   <div>
@@ -876,12 +887,9 @@ function MemberPortal({ member: initialMember, onLogout }) {
                       <span style={{ fontSize:15, fontWeight:700, color:G.navy }}>{p.name}</span>
                       {p.name===member.plan && <span style={{ background:G.bg4, border:`1px solid ${G.accentL}`, color:G.accent, fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:20 }}>Current</span>}
                     </div>
-                    <div style={{ fontSize:11, color:G.text3, marginTop:2 }}>{p.days} days</div>
+                    <div style={{ fontSize:11, color:G.text3, marginTop:2 }}>{p.days} days{p.pt ? ` · ${p.pt}` : ""}</div>
                   </div>
                   <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:18, fontWeight:800, color:G.accent }}>₹{p.price.toLocaleString()}</div>
-                </div>
-                <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
-                  {p.features.map(f => <span key={f} style={{ fontSize:10, fontWeight:600, color:G.accent, background:G.bg4, border:`1px solid ${G.accentL}`, padding:"2px 8px", borderRadius:20 }}>✓ {f}</span>)}
                 </div>
               </div>
             ))}
@@ -1107,7 +1115,7 @@ function MemberPortal({ member: initialMember, onLogout }) {
               </div>
             )}
 
-            {!paying && [{name:"Monthly",price:1500,days:30,features:["Gym Access","Locker"]},{name:"Quarterly",price:4000,days:90,features:["Gym Access","Locker","Group Classes"]},{name:"Yearly",price:14000,days:365,features:["Gym Access","4 PT Sessions","Locker","Group Classes","Nutrition"]}].map(plan => (
+            {!paying && activePlans.map(plan => (
               <div key={plan.name} className="card-hover" style={{ background:plan.name===member.plan?G.bg3:G.bg, border:`1.5px solid ${plan.name===member.plan?G.accentL:G.border}`, borderRadius:13, padding:"16px", marginBottom:10, cursor:"pointer", transition:".2s", boxShadow:"0 1px 4px rgba(0,0,0,.05)" }}
                 onClick={() => handleRenewPayment(plan)}>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
@@ -1116,7 +1124,7 @@ function MemberPortal({ member: initialMember, onLogout }) {
                       <span style={{ fontSize:15, fontWeight:700, color:G.navy }}>{plan.name}</span>
                       {plan.name===member.plan && <span style={{ background:G.bg4, border:`1px solid ${G.accentL}`, color:G.accent, fontSize:10, fontWeight:700, padding:"2px 8px", borderRadius:20 }}>Current</span>}
                     </div>
-                    <div style={{ fontSize:12, color:G.text3, marginTop:2 }}>{plan.days} days</div>
+                    <div style={{ fontSize:12, color:G.text3, marginTop:2 }}>{plan.days} days{plan.pt ? ` · ${plan.pt}` : ""}</div>
                   </div>
                   <div style={{ textAlign:"right" }}>
                     <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:20, fontWeight:800, color:G.accent }}>₹{plan.price.toLocaleString()}</div>
@@ -1129,6 +1137,39 @@ function MemberPortal({ member: initialMember, onLogout }) {
             <button onClick={() => setRenew(false)}
               style={{ width:"100%", background:"none", border:`1.5px solid ${G.border}`, borderRadius:12, padding:"13px", fontSize:14, fontWeight:600, color:G.text2, cursor:"pointer", marginTop:4 }}>
               Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── BOOK TRAINER MODAL ── */}
+      {showBook && (
+        <div onClick={e=>{ if(e.target===e.currentTarget) setBook(false); }}
+          style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.5)", backdropFilter:"blur(6px)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+          <div className="slide-in" style={{ background:G.bg, borderRadius:"20px 20px 0 0", padding:24, width:"100%", maxWidth:640 }}>
+            <div style={{ width:40, height:4, borderRadius:2, background:G.border, margin:"0 auto 20px" }}/>
+            <div style={{ fontSize:18, fontWeight:800, color:G.navy, marginBottom:4 }}>Book a Session</div>
+            <div style={{ fontSize:13, color:G.text3, marginBottom:20 }}>Schedule a personal training session with your trainer</div>
+
+            <div style={{ background:G.bg2, border:`1.5px solid ${G.border}`, borderRadius:14, padding:18, display:"flex", alignItems:"center", gap:14, marginBottom:16 }}>
+              <div style={{ width:52, height:52, borderRadius:13, background:G.bg4, border:`2px solid ${G.accentL}`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:16, color:G.accent, flexShrink:0 }}>{member.trainerInit}</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:15, fontWeight:700, color:G.navy }}>{member.trainer}</div>
+                <div style={{ fontSize:12, color:G.text2, marginTop:2 }}>{member.trainerSpec}</div>
+              </div>
+            </div>
+
+            <a href={`https://wa.me/?text=${encodeURIComponent(`Hi ${member.trainer}, I'd like to book a personal training session. My member ID is ${member.id}.`)}`}
+              target="_blank" rel="noopener noreferrer"
+              style={{ display:"block", width:"100%", background:"#25D366", border:"none", borderRadius:12, padding:"14px", fontSize:14, fontWeight:700, color:"#fff", cursor:"pointer", textAlign:"center", textDecoration:"none", marginBottom:10, boxSizing:"border-box" }}>
+              💬 Contact via WhatsApp
+            </a>
+
+            <div style={{ fontSize:12, color:G.text3, textAlign:"center", marginBottom:14 }}>Or ask at reception to schedule your session</div>
+
+            <button onClick={() => setBook(false)}
+              style={{ width:"100%", background:"none", border:`1.5px solid ${G.border}`, borderRadius:12, padding:"13px", fontSize:14, fontWeight:600, color:G.text2, cursor:"pointer" }}>
+              Close
             </button>
           </div>
         </div>

@@ -239,7 +239,7 @@ function generateNotifications(members, attendance, payments) {
 
 async function supaLoadGymData(gymId) {
   const [mRes, aRes, sRes, tRes, pRes, payRes, profRes, enqRes] = await Promise.all([
-    supabase.from('members').select('*').eq('gym_id', gymId),
+    supabase.rpc('get_gym_members', { p_gym_id: gymId }),
     supabase.from('attendance').select('*').eq('gym_id', gymId).order('created_at', { ascending: false }),
     supabase.from('staff').select('*').eq('gym_id', gymId),
     supabase.from('trainers').select('*').eq('gym_id', gymId),
@@ -2715,21 +2715,21 @@ function PageEnquiries({ toast }) {
       <Modal onClose={() => { setShowAdd(false); setShowEdit(null); }}>
         <div style={{padding:24,maxWidth:500,width:'100%'}}>
           <h3 style={{color:G.text,margin:'0 0 16px',fontSize:16}}>{title}</h3>
-          <FG label="Name *"><input value={f.name} onChange={e=>setF({...f,name:e.target.value})} style={inputS} placeholder="Full name"/></FG>
+          <FG label="Name *"><input value={f.name} onChange={e=>setF({...f,name:e.target.value})} style={s.input} placeholder="Full name"/></FG>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-            <FG label="Phone"><input value={f.phone} onChange={e=>setF({...f,phone:e.target.value})} style={inputS} placeholder="+91 ..."/></FG>
-            <FG label="Email"><input value={f.email} onChange={e=>setF({...f,email:e.target.value})} style={inputS} placeholder="email@..."/></FG>
+            <FG label="Phone"><input value={f.phone} onChange={e=>setF({...f,phone:e.target.value})} style={s.input} placeholder="+91 ..."/></FG>
+            <FG label="Email"><input value={f.email} onChange={e=>setF({...f,email:e.target.value})} style={s.input} placeholder="email@..."/></FG>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-            <FG label="Source"><select value={f.source} onChange={e=>setF({...f,source:e.target.value})} style={inputS}>{SOURCES.map(s=><option key={s}>{s}</option>)}</select></FG>
-            <FG label="Interested Plan"><select value={f.interest} onChange={e=>setF({...f,interest:e.target.value})} style={inputS}><option>Monthly</option><option>Quarterly</option><option>Yearly</option><option>Student Pack</option></select></FG>
+            <FG label="Source"><select value={f.source} onChange={e=>setF({...f,source:e.target.value})} style={s.input}>{SOURCES.map(s=><option key={s}>{s}</option>)}</select></FG>
+            <FG label="Interested Plan"><select value={f.interest} onChange={e=>setF({...f,interest:e.target.value})} style={s.input}><option>Monthly</option><option>Quarterly</option><option>Yearly</option><option>Student Pack</option></select></FG>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-            <FG label="Assigned To"><select value={f.assignedTo} onChange={e=>setF({...f,assignedTo:e.target.value})} style={inputS}><option value="">-- Select --</option>{staff.map(s=><option key={s.id} value={s.name}>{s.name}</option>)}</select></FG>
-            <FG label="Follow-up Date"><input type="date" value={f.followUpDate} onChange={e=>setF({...f,followUpDate:e.target.value})} style={inputS}/></FG>
+            <FG label="Assigned To"><select value={f.assignedTo} onChange={e=>setF({...f,assignedTo:e.target.value})} style={s.input}><option value="">-- Select --</option>{staff.map(s=><option key={s.id} value={s.name}>{s.name}</option>)}</select></FG>
+            <FG label="Follow-up Date"><input type="date" value={f.followUpDate} onChange={e=>setF({...f,followUpDate:e.target.value})} style={s.input}/></FG>
           </div>
-          {enq && <FG label="Status"><select value={f.status} onChange={e=>setF({...f,status:e.target.value})} style={inputS}>{STATUSES.filter(s=>s!=='All').map(s=><option key={s}>{s}</option>)}</select></FG>}
-          <FG label="Notes"><textarea value={f.notes} onChange={e=>setF({...f,notes:e.target.value})} style={{...inputS,minHeight:60,resize:'vertical'}} placeholder="Add notes..."/></FG>
+          {enq && <FG label="Status"><select value={f.status} onChange={e=>setF({...f,status:e.target.value})} style={s.input}>{STATUSES.filter(s=>s!=='All').map(s=><option key={s}>{s}</option>)}</select></FG>}
+          <FG label="Notes"><textarea value={f.notes} onChange={e=>setF({...f,notes:e.target.value})} style={{...s.input,minHeight:60,resize:'vertical'}} placeholder="Add notes..."/></FG>
           <MFooter onCancel={() => { setShowAdd(false); setShowEdit(null); }} onSave={() => f.name.trim() ? onSave({...f, id: enq?.id}) : toast('❌ Name is required')} saveLabel={saving ? '⏳ Saving...' : enq ? '💾 Update' : '➕ Add Lead'} />
         </div>
       </Modal>
@@ -2760,7 +2760,7 @@ function PageEnquiries({ toast }) {
 
       {/* Toolbar */}
       <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
-        <input placeholder="🔍 Search leads..." value={search} onChange={e=>setSearch(e.target.value)} style={{...inputS,flex:1,minWidth:180}} />
+        <input placeholder="🔍 Search leads..." value={search} onChange={e=>setSearch(e.target.value)} style={{...s.input,flex:1,minWidth:180}} />
         <button onClick={()=>setShowAdd(true)} style={{padding:'8px 16px',borderRadius:8,background:G.accent,color:'#fff',fontWeight:600,fontSize:13,border:'none',cursor:'pointer'}}>+ New Lead</button>
       </div>
 

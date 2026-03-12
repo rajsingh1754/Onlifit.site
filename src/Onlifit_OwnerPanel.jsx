@@ -1388,7 +1388,7 @@ function Panel({ onLogout }) {
     overview:`${gyms.filter(g=>g.status==="active").length} active · ${gyms.filter(g=>g.status==="suspended").length} suspended · ${gyms.filter(g=>g.status==="overdue").length} overdue`,
     gyms:`${gyms.length} gyms registered on Onlifit`,
     revenue:`MRR: ${fmt(mrr)}`,
-    support:`${SUPPORT_TICKETS.filter(t=>t.status==="open").length} open tickets`,
+    support:"View & respond to tickets",
     settings:"Platform configuration",
   };
 

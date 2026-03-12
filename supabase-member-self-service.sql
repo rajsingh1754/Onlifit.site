@@ -107,3 +107,23 @@ END;
 $$;
 
 -- Done! You can now use the Member Self-Service features.
+
+-- ============================================================================
+-- 4. Lookup member for portal login (by ID or phone)
+-- ============================================================================
+CREATE OR REPLACE FUNCTION lookup_member_for_login(input text)
+RETURNS json
+LANGUAGE sql
+SECURITY DEFINER
+AS $$
+  SELECT COALESCE(
+    (SELECT json_agg(r) FROM (
+      SELECT * FROM members
+      WHERE id = input
+         OR phone = input
+         OR REPLACE(REPLACE(REPLACE(phone,' ',''),'-',''),'+','') = REPLACE(REPLACE(REPLACE(input,' ',''),'-',''),'+','')
+      LIMIT 1
+    ) r),
+    '[]'::json
+  );
+$$;

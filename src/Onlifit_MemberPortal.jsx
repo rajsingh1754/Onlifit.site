@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { QRCodeCanvas } from "qrcode.react";
+import jsQR from "jsqr";
 import { supabase } from "./supabase";
 
 const STORAGE_KEY = 'onlifit_member_user';
@@ -95,6 +96,11 @@ function LoginScreen({ onLogin }) {
   const [otp, setOtp]       = useState(["","","","","",""]);
   const [resendTimer, setResendTimer] = useState(0);
   const [sending, setSending] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const scanFrameRef = useRef(null);
+  const streamRef = useRef(null);
   const otpRefs = [useRef(), useRef(), useRef(), useRef(), useRef(), useRef()];
 
   // Resend cooldown timer
@@ -110,6 +116,53 @@ function LoginScreen({ onLogin }) {
     const last10 = digits.slice(-10);
     return '+91' + last10;
   };
+
+  // ── QR Scanner ──
+  const stopScanner = useCallback(() => {
+    if (scanFrameRef.current) { cancelAnimationFrame(scanFrameRef.current); scanFrameRef.current = null; }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+    setScanning(false);
+  }, []);
+
+  const startScanner = useCallback(async () => {
+    setScanning(true);
+    setError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } } });
+      streamRef.current = stream;
+      const video = videoRef.current;
+      if (!video) { stopScanner(); return; }
+      video.srcObject = stream;
+      video.setAttribute("playsinline", "true");
+      await video.play();
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      const scan = () => {
+        if (!streamRef.current) return;
+        if (video.readyState >= 2) {
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0);
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const qr = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: "dontInvert" });
+          if (qr && qr.data) {
+            const detected = qr.data.trim();
+            stopScanner();
+            setMId(detected.toUpperCase());
+            return;
+          }
+        }
+        scanFrameRef.current = requestAnimationFrame(scan);
+      };
+      scanFrameRef.current = requestAnimationFrame(scan);
+    } catch (e) {
+      setError("Camera access denied. Please allow camera permissions.");
+      stopScanner();
+    }
+  }, [stopScanner]);
+
+  // Cleanup scanner on unmount
+  useEffect(() => () => { stopScanner(); }, [stopScanner]);
 
   // Build member object from DB row
   const buildMember = async (data) => {
@@ -276,7 +329,19 @@ function LoginScreen({ onLogin }) {
           {step === "id" && (
             <div>
               <div style={{ fontSize:18, fontWeight:700, color:"#fff", marginBottom:4 }}>Welcome back 👋</div>
-              <div style={{ fontSize:13, color:"rgba(255,255,255,.45)", marginBottom:24 }}>Enter your Member ID or registered phone number</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.45)", marginBottom:24 }}>Enter your Member ID, phone, or scan your QR</div>
+
+              {/* QR Scanner */}
+              {scanning && (
+                <div style={{ marginBottom:16, borderRadius:12, overflow:"hidden", position:"relative", background:"#000" }}>
+                  <video ref={videoRef} style={{ width:"100%", display:"block", borderRadius:12 }} muted playsInline />
+                  <canvas ref={canvasRef} style={{ display:"none" }} />
+                  <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", pointerEvents:"none" }}>
+                    <div style={{ width:180, height:180, border:"2px solid rgba(22,163,74,.7)", borderRadius:16 }}/>
+                  </div>
+                  <button onClick={stopScanner} style={{ position:"absolute", top:8, right:8, background:"rgba(0,0,0,.6)", border:"none", borderRadius:8, width:32, height:32, color:"#fff", fontSize:16, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+                </div>
+              )}
 
               <label style={{ fontSize:11, color:"rgba(255,255,255,.4)", fontWeight:600, textTransform:"uppercase", letterSpacing:"1px", display:"block", marginBottom:8 }}>Member ID / Phone</label>
               <input
@@ -289,10 +354,17 @@ function LoginScreen({ onLogin }) {
               />
               {error && <div style={{ fontSize:12, color:"#f87171", marginBottom:14, display:"flex", alignItems:"center", gap:6 }}>⚠ {error}</div>}
 
-              <button className="btn-primary" onClick={handleIdSubmit} disabled={sending}
-                style={{ width:"100%", background:sending?"#374151":G.accent, border:"none", borderRadius:10, padding:"14px", fontSize:15, fontWeight:700, color:"#fff", cursor:sending?"wait":"pointer", transition:".2s", boxShadow:sending?"none":"0 4px 16px rgba(22,163,74,.35)" }}>
-                {sending ? "Sending OTP..." : "Send OTP →"}
-              </button>
+              <div style={{ display:"flex", gap:10, marginBottom:0 }}>
+                <button className="btn-primary" onClick={handleIdSubmit} disabled={sending}
+                  style={{ flex:1, background:sending?"#374151":G.accent, border:"none", borderRadius:10, padding:"14px", fontSize:15, fontWeight:700, color:"#fff", cursor:sending?"wait":"pointer", transition:".2s", boxShadow:sending?"none":"0 4px 16px rgba(22,163,74,.35)" }}>
+                  {sending ? "Sending OTP..." : "Send OTP →"}
+                </button>
+                {!scanning && (
+                  <button onClick={startScanner}
+                    style={{ background:"rgba(255,255,255,.08)", border:"1.5px solid rgba(255,255,255,.15)", borderRadius:10, padding:"14px 18px", fontSize:20, color:"#fff", cursor:"pointer", transition:".2s", display:"flex", alignItems:"center", justifyContent:"center" }}
+                    title="Scan QR Code">📷</button>
+                )}
+              </div>
 
               <div style={{ textAlign:"center", marginTop:18, fontSize:12, color:"rgba(255,255,255,.25)" }}>
                 We'll send a 6-digit OTP to your registered phone

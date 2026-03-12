@@ -560,12 +560,12 @@ function AddGymModal({ open, onClose, onAdd }) {
             <div style={{ fontSize:12, color:"#e2e8f0", lineHeight:1.8, ...mono }}>
               Hi {f.owner}! 👋<br/>
               Your Onlifit gym dashboard is ready.<br/><br/>
-              🔗 Dashboard: <span style={{color:"#4ade80"}}>https://dashboard.onlifit.app</span><br/>
+              🔗 Dashboard: <span style={{color:"#4ade80"}}>https://onlifit.vercel.app</span><br/>
               📧 Email: <span style={{color:"#4ade80"}}>{f.email}</span><br/>
               🔑 Password: <span style={{color:"#fbbf24"}}>{creds.tempPw}</span><br/>
               🏢 Gym ID: <span style={{color:"#4ade80"}}>{creds.gymId}</span><br/><br/>
               👥 Member Portal link to share with your customers:<br/>
-              <span style={{color:"#4ade80"}}>https://members.onlifit.app/?gym={creds.gymId}</span><br/><br/>
+              <span style={{color:"#4ade80"}}>https://onlifit.vercel.app/member?gym={creds.gymId}</span><br/><br/>
               Please change your password after first login. 🔒
             </div>
           </div>

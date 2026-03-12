@@ -125,12 +125,8 @@ async function supaLogin(email, password) {
       password,
     });
     if (authErr || !authData?.user) return null;
-    // Fetch gym account linked to this auth user
-    const { data, error } = await supabase
-      .from('gym_accounts')
-      .select('*')
-      .eq('email', authData.user.email)
-      .single();
+    // Fetch gym account via SECURITY DEFINER RPC (bypasses RLS)
+    const { data, error } = await supabase.rpc('get_gym_account', { p_email: authData.user.email });
     if (error || !data) return null;
     return { gym_id: data.gym_id, user_id: data.user_id, email: data.email, name: data.name, gymName: data.gym_name, city: data.city, role: data.role, isNew: data.is_new };
   } catch { return null; }

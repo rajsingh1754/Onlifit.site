@@ -7,6 +7,10 @@ export default class ErrorBoundary extends Component {
     return { hasError: true, error };
   }
 
+  componentDidCatch(error, info) {
+    console.error("[ErrorBoundary]", error, info?.componentStack);
+  }
+
   handleRetry = () => {
     this.setState({ hasError: false, error: null });
   };
@@ -24,6 +28,11 @@ export default class ErrorBoundary extends Component {
           <p style={{ color: "#64748b", fontSize: 14, marginBottom: 24, maxWidth: 400 }}>
             An unexpected error occurred. Please try again.
           </p>
+          {this.state.error && (
+            <pre style={{ background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 8, padding: 12, fontSize: 11, color: "#dc2626", maxWidth: 500, overflow: "auto", textAlign: "left", marginBottom: 16, whiteSpace: "pre-wrap" }}>
+              {this.state.error.message || String(this.state.error)}
+            </pre>
+          )}
           <button
             onClick={this.handleRetry}
             style={{

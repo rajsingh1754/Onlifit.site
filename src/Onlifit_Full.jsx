@@ -711,8 +711,8 @@ function OnboardingWizard({ gymUser, onComplete }) {
               <div style={{background:'#0f172a',borderRadius:12,padding:18,width:'100%',maxWidth:480,textAlign:'left'}}>
                 <div style={{fontSize:11,fontWeight:700,color:'#64748b',textTransform:'uppercase',letterSpacing:'.8px',marginBottom:12}}>🔗 Connections that go live instantly</div>
                 {[
-                  {icon:'📱',label:'Member Portal',url:`members.onlifit.app/?gym=${gymUser.gym_id}`,clr:'#4ade80',note:'Share with every member'},
-                  {icon:'📷',label:'Reception QR Scanner',url:`reception.onlifit.app/?gym=${gymUser.gym_id}`,clr:'#60a5fa',note:'Open on your reception tablet'},
+                  {icon:'📱',label:'Member Portal',url:`onlifit.vercel.app/member?gym=${gymUser.gym_id}`,clr:'#4ade80',note:'Share with every member'},
+                  {icon:'📷',label:'Reception QR Scanner',url:`onlifit.vercel.app/reception?gym=${gymUser.gym_id}`,clr:'#60a5fa',note:'Open on your reception tablet'},
                   {icon:'🆔',label:'Gym ID',url:gymUser.gym_id,clr:'#fbbf24',note:'Your unique identifier'},
                   {icon:'✦',label:'AI Assistant',url:'Live · reads your real member + attendance data',clr:'#a78bfa',note:'Ask it anything about your gym'},
                 ].map(({icon,label,url,clr,note})=>(
@@ -927,8 +927,8 @@ function PageDashboard({ toast }) {
 
         <div style={{...s.flex(12),marginTop:14,padding:'9px 12px',background:'#0f172a',borderRadius:9,flexWrap:'wrap',gap:6}}>
           {[
-            {icon:'📱',label:'Member Portal',val:`members.onlifit.app/?gym=${gymUser.gym_id}`,clr:'#4ade80'},
-            {icon:'📷',label:'Reception Scanner',val:`reception.onlifit.app/?gym=${gymUser.gym_id}`,clr:'#60a5fa'},
+            {icon:'📱',label:'Member Portal',val:`onlifit.vercel.app/member?gym=${gymUser.gym_id}`,clr:'#4ade80'},
+            {icon:'📷',label:'Reception Scanner',val:`onlifit.vercel.app/reception?gym=${gymUser.gym_id}`,clr:'#60a5fa'},
             {icon:'🆔',label:'Gym ID',val:gymUser.gym_id,clr:'#fbbf24'},
           ].map(({icon,label,val,clr})=>(
             <div key={label} style={{...s.flex(6),flex:1,minWidth:160,cursor:'pointer'}} onClick={()=>toast(`Copied: ${val}`)}>
@@ -1025,7 +1025,7 @@ function PageAttendance({ toast }) {
   const insideNow  = todayAtt.filter(a=>a.status==='inside');
   const heatVals   = [2,1,3,5,18,32,45,38,22,14,10,8,6,7,12,16,20,42,50,38,24,12,5,2];
   const absent     = members.filter(m=>m.status==='Active' && !todayAtt.find(a=>a.memberId===m.id));
-  const portalBase = `https://members.onlifit.app/?gym=${gymUser.gym_id}`;
+  const portalBase = `https://onlifit.vercel.app/member?gym=${gymUser.gym_id}`;
 
   const [gateResult, setGateResult] = useState(null);
   const [gateLoading, setGateLoading] = useState(false);
@@ -1467,7 +1467,7 @@ function PageMembers({ toast }) {
   const [form,setForm] = useState({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'Vikram Singh',coupon:''});
   const [editForm,setEditForm] = useState({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'',status:'Active'});
   const [saving,setSaving] = useState(false);
-  const portalBase = `https://members.onlifit.app/?gym=${gymUser.gym_id}`;
+  const portalBase = `https://onlifit.vercel.app/member?gym=${gymUser.gym_id}`;
 
   const expiringSoon = members.filter(m=>m.status==='Active' && daysUntilExpiry(m.expiry)<=7 && daysUntilExpiry(m.expiry)>=0);
   const filterTabs = [
@@ -1696,7 +1696,7 @@ PERSONALITY RULES -- CRITICAL:
 - Never say "I don't have access to" -- if data isn't here, make a smart inference.
 - Use WhatsApp message templates when asked -- make them sound human, not robotic.
 - When forecasting, use the actual plan distribution and member counts above.
-- Gym ID: ${gymUser.gym_id} | Portal: members.onlifit.app/?gym=${gymUser.gym_id}`;
+- Gym ID: ${gymUser.gym_id} | Portal: onlifit.vercel.app/member?gym=${gymUser.gym_id}`;
   };
 
   const send = async (q) => {
@@ -3741,7 +3741,7 @@ export default function App() {
                   <LiveDot/><span style={{fontSize:11,fontWeight:700,color:G.accent}}>{insideCount} inside</span>
                 </div>
               )}
-              <div style={{display:'flex',alignItems:'center',gap:6,background:G.bg3,border:`1px solid ${G.border2}`,borderRadius:7,padding:'5px 10px',cursor:'pointer'}} onClick={()=>showToast(`Portal link copied! members.onlifit.app/?gym=${gymUser.gym_id}`)}>
+              <div style={{display:'flex',alignItems:'center',gap:6,background:G.bg3,border:`1px solid ${G.border2}`,borderRadius:7,padding:'5px 10px',cursor:'pointer'}} onClick={()=>showToast(`Portal link copied! onlifit.vercel.app/member?gym=${gymUser.gym_id}`)}>
                 <span style={{fontSize:11}}>📱</span>
                 <span style={{fontSize:11,fontWeight:600,color:G.accent}}>Member Portal</span>
               </div>

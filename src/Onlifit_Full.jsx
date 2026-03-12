@@ -3589,33 +3589,40 @@ export default function App() {
     showToast(`🚀 ${gymUser.gymName} is live! ${newMembers.length} members imported.`);
     // Persist to Supabase via RPC (bypasses RLS)
     if (gymUser) {
-      try {
-        await supabase.rpc('complete_gym_onboarding', {
-          p_gym_id: gymUser.gym_id,
-          p_gym_name: profile.gymName || gymUser.gymName,
-          p_tagline: profile.tagline || '',
-          p_address: profile.address || '',
-          p_city: profile.city || gymUser.city || '',
-          p_phone: profile.phone || '',
-          p_gstin: profile.gstin || '',
-          p_open_time: profile.openTime || '06:00',
-          p_close_time: profile.closeTime || '22:00',
-          p_members: newMembers.length ? JSON.stringify(newMembers.map(m => ({
-            id: m.id, gym_id: gymUser.gym_id, name: m.name, initials: m.init, phone: m.phone||'',
-            email: m.email||'', dob: m.dob||'', plan: m.plan, start_date: m.start, expiry_date: m.expiry,
-            status: m.status||'Active', trainer: m.trainer||'', visits: m.visits||0,
-          }))) : '[]',
-          p_staff: newStaff.length ? JSON.stringify(newStaff.map(st => ({
-            id: st.id, gym_id: gymUser.gym_id, name: st.name, initials: st.init, role: st.role,
-            branch: st.branch||'', members_count: st.members||0, present: st.present??true,
-            salary: parseInt(st.salary)||0, phone: st.phone||'', email: st.email||'', joined: st.joined||'', qr: st.qr||'',
-          }))) : '[]',
-        });
-        // Update local state so re-login doesn't show onboarding again
-        const updated = { ...gymUser, isNew: false };
-        setGymUser(updated);
-        localStorage.setItem('onlifit_gym_user', JSON.stringify(updated));
-      } catch(e) { console.error("[Onboard] Save error:", e); }
+      // Try the full RPC first
+      const { error: rpcErr } = await supabase.rpc('complete_gym_onboarding', {
+        p_gym_id: gymUser.gym_id,
+        p_gym_name: profile.gymName || gymUser.gymName,
+        p_tagline: profile.tagline || '',
+        p_address: profile.address || '',
+        p_city: profile.city || gymUser.city || '',
+        p_phone: profile.phone || '',
+        p_gstin: profile.gstin || '',
+        p_open_time: profile.openTime || '06:00',
+        p_close_time: profile.closeTime || '22:00',
+        p_members: newMembers.length ? JSON.stringify(newMembers.map(m => ({
+          id: m.id, gym_id: gymUser.gym_id, name: m.name, initials: m.init, phone: m.phone||'',
+          email: m.email||'', dob: m.dob||'', plan: m.plan, start_date: m.start, expiry_date: m.expiry,
+          status: m.status||'Active', trainer: m.trainer||'', visits: m.visits||0,
+        }))) : '[]',
+        p_staff: newStaff.length ? JSON.stringify(newStaff.map(st => ({
+          id: st.id, gym_id: gymUser.gym_id, name: st.name, initials: st.init, role: st.role,
+          branch: st.branch||'', members_count: st.members||0, present: st.present??true,
+          salary: parseInt(st.salary)||0, phone: st.phone||'', email: st.email||'', joined: st.joined||'', qr: st.qr||'',
+        }))) : '[]',
+      });
+      if (rpcErr) {
+        console.error("[Onboard] RPC failed:", rpcErr.message, "— trying direct fallback");
+        // Fallback: at minimum mark is_new=false via a simple RPC
+        const { error: fallbackErr } = await supabase.rpc('mark_gym_onboarded', { p_gym_id: gymUser.gym_id });
+        if (fallbackErr) console.error("[Onboard] Fallback also failed:", fallbackErr.message);
+      } else {
+        console.log("[Onboard] RPC success — gym saved");
+      }
+      // Update local state so re-login doesn't show onboarding again
+      const updated = { ...gymUser, isNew: false };
+      setGymUser(updated);
+      localStorage.setItem('onlifit_gym_user', JSON.stringify(updated));
     }
   };
 

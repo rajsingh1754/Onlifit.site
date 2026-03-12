@@ -1223,34 +1223,22 @@ function Panel({ onLogout }) {
         options: { data: { gym_id: newGym.id, name: creds.ownerName, role: newGym.role || 'gym_owner' } }
       });
 
+      console.log("[OwnerPanel] signUp response:", { authData, authErr });
+
       if (authErr) {
         console.error("[OwnerPanel] Auth signup error:", authErr);
         toast$(`Auth error: ${authErr.message}`, "error");
         return;
       }
 
-      // Supabase returns a user with no identities if email already exists (email confirm off)
-      const isExisting = authData?.user && (!authData.user.identities || authData.user.identities.length === 0);
-      if (isExisting) {
-        // User already exists — sign in with provided password to get their ID
-        await new Promise(r => setTimeout(r, 6000));
-        const { data: loginData, error: loginErr } = await supabase.auth.signInWithPassword({
-          email: creds.email, password: creds.tempPw
-        });
-        if (loginErr) {
-          toast$(`User already exists with this email. Either use the same password or delete the user in Supabase Auth.`, "error");
-          return;
-        }
-        authUserId = loginData?.user?.id || creds.userId;
-      } else {
-        authUserId = authData?.user?.id || creds.userId;
-      }
+      authUserId = authData?.user?.id || creds.userId;
 
-      // 2. Re-login as admin BEFORE inserts (signUp/signIn switches session)
+      // 2. Re-login as admin BEFORE inserts (signUp switches session)
       await new Promise(r => setTimeout(r, 6000));
       const storedPw = sessionStorage.getItem('onlifit_admin_pw');
       if (storedPw) {
-        await supabase.auth.signInWithPassword({ email: ADMIN_EMAILS[0], password: storedPw });
+        const { error: reAuthErr } = await supabase.auth.signInWithPassword({ email: ADMIN_EMAILS[0], password: storedPw });
+        if (reAuthErr) { console.error("[OwnerPanel] Re-auth failed:", reAuthErr); toast$(`Re-auth failed: ${reAuthErr.message}`, "error"); return; }
       }
 
       // 3. Insert gym_accounts + gym_profiles via SECURITY DEFINER function (bypasses RLS)

@@ -86,12 +86,7 @@ const PLANS_CATALOG = [
   { id:"growth",       name:"Growth",         price:2999, maxBranch:1,  maxMembers:500,  features:["All Starter features","Revenue Analytics","PT Management","AI Assistant"] },
   { id:"multi-branch", name:"Multi-Branch",  price:4999, maxBranch:10, maxMembers:2000, features:["All Growth features","Multi-Branch Dashboard","Priority Support","Custom Branding"] },
 ];
-const SUPPORT_TICKETS = [
-  { id:"TKT-001", gym:"Onlifit",   subject:"QR scanner not working",    status:"open",     priority:"high",   date:"Mar 10" },
-  { id:"TKT-002", gym:"PowerZone Gym",    subject:"Billing invoice not sent",  status:"resolved", priority:"medium", date:"Mar 9"  },
-  { id:"TKT-003", gym:"NexGen Fitness",   subject:"Staff login issue",         status:"open",     priority:"low",    date:"Mar 9"  },
-  { id:"TKT-004", gym:"EliteGym Pro",     subject:"Member export not working", status:"open",     priority:"medium", date:"Mar 8"  },
-];
+// SUPPORT_TICKETS removed — now loaded from Supabase
 
 // ─── SHARED UI COMPONENTS (matching main dashboard) ───────────────────────────
 
@@ -1002,44 +997,159 @@ function PageRevenue({ gyms }) {
 // SUPPORT PAGE
 // ═════════════════════════════════════════════════════════════════════════════
 function PageSupport({ gyms }) {
-  const [tickets, setTickets] = useState(SUPPORT_TICKETS);
-  const resolve = (id) => setTickets(ts=>ts.map(t=>t.id===id?{...t,status:"resolved"}:t));
+  const [tickets, setTickets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selTicket, setSelTicket] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [reply, setReply] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const loadTickets = async () => {
+    try {
+      const { data } = await supabase.rpc("get_all_support_tickets");
+      setTickets(data || []);
+    } catch(e) { console.error(e); }
+    setLoading(false);
+  };
+
+  const loadMsgs = async (tid) => {
+    try {
+      const { data } = await supabase.rpc("get_support_messages", { p_ticket_id: tid });
+      setMessages(data || []);
+    } catch(e) { console.error(e); }
+  };
+
+  useEffect(() => { loadTickets(); }, []);
+
+  // Realtime: new tickets and status changes
+  useEffect(() => {
+    const ch = supabase.channel("admin-support-tickets")
+      .on("postgres_changes", { event:"*", schema:"public", table:"support_tickets" }, () => loadTickets())
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, []);
+
+  // Realtime: messages for selected ticket
+  useEffect(() => {
+    if (!selTicket) return;
+    const ch = supabase.channel("admin-msgs-" + selTicket.ticket_id)
+      .on("postgres_changes", { event:"INSERT", schema:"public", table:"support_messages", filter:`ticket_id=eq.${selTicket.ticket_id}` },
+        () => loadMsgs(selTicket.ticket_id))
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [selTicket?.ticket_id]);
+
+  const openTicket = (t) => { setSelTicket(t); loadMsgs(t.ticket_id); };
+
+  const sendReply = async () => {
+    if (!reply.trim() || !selTicket) return;
+    setSending(true);
+    try {
+      await supabase.rpc("send_support_message", {
+        p_ticket_id: selTicket.ticket_id, p_sender: "admin",
+        p_sender_name: "Onlifit Support", p_message: reply.trim()
+      });
+      setReply("");
+      loadMsgs(selTicket.ticket_id);
+    } catch(e) { console.error(e); }
+    setSending(false);
+  };
+
+  const resolveTicket = async (tid) => {
+    try {
+      await supabase.rpc("resolve_support_ticket", { p_ticket_id: tid });
+      loadTickets();
+      if (selTicket?.ticket_id === tid) { loadMsgs(tid); setSelTicket(prev => ({ ...prev, status:"resolved" })); }
+    } catch(e) { console.error(e); }
+  };
+
+  const openCount = tickets.filter(t=>t.status==="open").length;
+  const resolvedCount = tickets.filter(t=>t.status==="resolved").length;
 
   return (
     <div className="page-anim">
       <div style={{ ...grid(3), marginBottom:16 }}>
-        <StatCard label="Open Tickets"     value={tickets.filter(t=>t.status==="open").length}     sub="awaiting response"   icon="🎟️"/>
-        <StatCard label="Resolved Today"   value={tickets.filter(t=>t.status==="resolved").length} sub="closed tickets"      icon="✅"/>
-        <StatCard label="Avg Response"     value="2.4h"    sub="this week"  trend={{up:true,label:"↑Fast"}}   icon="⏱️"/>
+        <StatCard label="Open Tickets"     value={openCount}     sub="awaiting response"   icon="🎟️"/>
+        <StatCard label="Resolved"         value={resolvedCount} sub="closed tickets"      icon="✅"/>
+        <StatCard label="Total"            value={tickets.length} sub="all time"            icon="📊"/>
       </div>
 
-      <div style={card(0)}>
-        <div style={{ padding:"14px 18px", borderBottom:`1px solid ${G.border}` }}>
-          <div style={{ fontSize:14, fontWeight:700, color:G.navy }}>Support Tickets</div>
-          <div style={{ fontSize:12, color:G.text3, marginTop:2 }}>Gym owners contact you through this</div>
-        </div>
-        <table style={{ width:"100%", borderCollapse:"collapse" }}>
-          <Th cols={["Ticket ID","Gym","Subject","Priority","Status","Date",""]} />
-          <tbody>
+      <div style={{ display:"flex", gap:14, minHeight:400 }}>
+        {/* Tickets list */}
+        <div style={{ ...card(0), flex:1, minWidth:0 }}>
+          <div style={{ padding:"14px 18px", borderBottom:`1px solid ${G.border}` }}>
+            <div style={{ fontSize:14, fontWeight:700, color:G.navy }}>Support Tickets</div>
+            <div style={{ fontSize:12, color:G.text3, marginTop:2 }}>Gym owners contact you through this</div>
+          </div>
+          {loading && <div style={{ padding:30, textAlign:"center", color:G.text3, fontSize:13 }}>Loading tickets...</div>}
+          {!loading && tickets.length===0 && <div style={{ padding:30, textAlign:"center", color:G.text3, fontSize:13 }}>No support tickets yet</div>}
+          <div style={{ overflowY:"auto", maxHeight:500 }}>
             {tickets.map(t=>(
-              <tr key={t.id} className="row-hover" style={{ borderBottom:`1px solid ${G.border}` }}>
-                <td style={{ padding:"12px 14px", ...mono, fontSize:12, color:G.text3 }}>{t.id}</td>
-                <td style={{ padding:"12px 14px", fontSize:13, fontWeight:600, color:G.navy }}>{t.gym}</td>
-                <td style={{ padding:"12px 14px", fontSize:13, color:G.text2 }}>{t.subject}</td>
-                <td style={{ padding:"12px 14px" }}>
-                  {t.priority==="high"?<Badge danger>High</Badge>:t.priority==="medium"?<Badge warn>Medium</Badge>:<Badge>Low</Badge>}
-                </td>
-                <td style={{ padding:"12px 14px" }}>
-                  {t.status==="resolved"?<Badge bright>✓ Resolved</Badge>:<Badge warn>⏳ Open</Badge>}
-                </td>
-                <td style={{ padding:"12px 14px", fontSize:12, color:G.text3 }}>{t.date}</td>
-                <td style={{ padding:"12px 14px" }}>
-                  {t.status==="open" && <Btn size="xs" variant="ghost" onClick={()=>resolve(t.id)}>Resolve</Btn>}
-                </td>
-              </tr>
+              <div key={t.ticket_id} onClick={()=>openTicket(t)}
+                className="row-hover" style={{ padding:"12px 18px", borderBottom:`1px solid ${G.border}`, cursor:"pointer", background:selTicket?.ticket_id===t.ticket_id?G.bg3:"transparent" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:4 }}>
+                  <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:11, color:G.text3 }}>{t.ticket_id}</span>
+                  <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                    {t.priority==="high"?<Badge danger>High</Badge>:t.priority==="medium"?<Badge warn>Medium</Badge>:<Badge>Low</Badge>}
+                    {t.status==="resolved"?<Badge bright>✓ Resolved</Badge>:<Badge warn>⏳ Open</Badge>}
+                  </div>
+                </div>
+                <div style={{ fontSize:13, fontWeight:600, color:G.navy }}>{t.subject}</div>
+                <div style={{ display:"flex", justifyContent:"space-between", marginTop:4 }}>
+                  <span style={{ fontSize:11, color:G.accent, fontWeight:600 }}>{t.gym_name||t.gym_id}</span>
+                  <span style={{ fontSize:11, color:G.text3 }}>{new Date(t.created_at).toLocaleDateString()}</span>
+                </div>
+              </div>
             ))}
-          </tbody>
-        </table>
+          </div>
+        </div>
+
+        {/* Chat panel */}
+        <div style={{ ...card(0), flex:1, minWidth:0, display:"flex", flexDirection:"column" }}>
+          {!selTicket && (
+            <div style={{ flex:1, display:"flex", alignItems:"center", justifyContent:"center", color:G.text3, fontSize:13 }}>
+              ← Select a ticket to view conversation
+            </div>
+          )}
+          {selTicket && <>
+            <div style={{ padding:"14px 18px", borderBottom:`1px solid ${G.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div>
+                <div style={{ fontSize:14, fontWeight:700, color:G.navy }}>{selTicket.subject}</div>
+                <div style={{ fontSize:11, color:G.text3 }}>{selTicket.gym_name} · {selTicket.ticket_id}</div>
+              </div>
+              {selTicket.status==="open" && <Btn size="xs" onClick={()=>resolveTicket(selTicket.ticket_id)}>✓ Resolve</Btn>}
+            </div>
+            <div style={{ flex:1, overflowY:"auto", padding:14 }}>
+              {messages.map((m,i)=>(
+                <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:m.sender==="admin"?"flex-end":"flex-start", marginBottom:10 }}>
+                  <div style={{ fontSize:10, color:G.text3, marginBottom:2, fontWeight:600 }}>{m.sender==="admin"?"🛡️ You (Admin)":"🏋️ "+m.sender_name}</div>
+                  <div style={{
+                    background:m.sender==="admin"?G.accent:G.bg2,
+                    color:m.sender==="admin"?"#fff":G.navy,
+                    border:m.sender==="admin"?"none":`1px solid ${G.border}`,
+                    borderRadius:m.sender==="admin"?"12px 12px 4px 12px":"12px 12px 12px 4px",
+                    padding:"10px 14px", fontSize:13, maxWidth:"80%", lineHeight:1.5
+                  }}>{m.message}</div>
+                  <div style={{ fontSize:9, color:G.text3, marginTop:2 }}>{new Date(m.created_at).toLocaleString()}</div>
+                </div>
+              ))}
+              {messages.length===0 && <div style={{textAlign:"center",padding:20,color:G.text3,fontSize:13}}>Loading...</div>}
+            </div>
+            {selTicket.status==="open" && (
+              <div style={{ borderTop:`1px solid ${G.border}`, padding:10, display:"flex", gap:8 }}>
+                <input value={reply} onChange={e=>setReply(e.target.value)} placeholder="Type admin reply..."
+                  onKeyDown={e=>{ if(e.key==="Enter") sendReply(); }}
+                  style={{ flex:1, border:`1.5px solid ${G.border}`, borderRadius:8, padding:"9px 12px", fontSize:13, outline:"none" }} />
+                <Btn size="sm" onClick={sendReply} disabled={sending}>{sending?"...":"Send"}</Btn>
+              </div>
+            )}
+            {selTicket.status==="resolved" && (
+              <div style={{ padding:10, textAlign:"center", fontSize:12, color:G.accent, fontWeight:600, background:G.bg3, borderTop:`1px solid ${G.border}` }}>
+                ✅ Ticket resolved
+              </div>
+            )}
+          </>}
+        </div>
       </div>
     </div>
   );

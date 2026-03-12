@@ -3438,6 +3438,331 @@ function NotificationCenter({ notifications, open, onClose, onDismiss, onDismiss
   );
 }
 
+// ─── SUPPORT CHATBOT ──────────────────────────────────────────────────────────
+const ONLIFIT_KB = [
+  { q:["add member","new member","create member","register member"], a:"Go to **Members** → click **+ Add Member** (top-right). Fill name, phone, plan, start date, and optional trainer. You can also bulk-import via CSV using the upload button." },
+  { q:["delete member","remove member"], a:"Open **Members** → find the member → click the **✕** button on their row, or open Edit and click **🗑 Delete**. This removes their attendance and payment records too." },
+  { q:["edit member","update member","change plan"], a:"In **Members**, click any member row to open the Edit modal. Update any field and click Save." },
+  { q:["qr code","qr scan","scanner","attendance scanner","mark attendance"], a:"Go to **Attendance** → the live scanner opens your camera. Members show their QR code (from their Member Portal or printed ID card). The system auto-marks check-in/check-out." },
+  { q:["qr not working","camera not opening","scanner issue","scan fail"], a:"Make sure you're using **HTTPS** (or localhost). Grant camera permission when prompted. If on iPhone Safari, check Settings → Safari → Camera. Try Chrome if Safari doesn't work." },
+  { q:["member portal","member login","member app"], a:"Members access their portal at **onlifit.vercel.app/member**. They log in with their Member ID + Phone number (or scan their QR). They can view plans, payment history, freeze membership, and see their QR code." },
+  { q:["reception","reception scanner","reception portal"], a:"The Reception portal is at **onlifit.vercel.app/reception**. Staff log in with the gym credentials. It provides a full-screen QR scanner for checking members in/out." },
+  { q:["add staff","new staff","hire staff","staff member"], a:"Go to **Staff** → click **+ Add Staff**. Enter name, role (Admin/Trainer/Receptionist/Cleaner), phone, salary. They'll appear in the staff list." },
+  { q:["trainer","assign trainer","personal training","pt"], a:"Go to **Personal Training** tab. Trainers are staff with the 'Trainer' role. When adding a member, you can assign a trainer from the dropdown." },
+  { q:["plan","pricing","create plan","gym plan","membership plan"], a:"Go to **Settings** → Plans section. You can add plans with a name, duration (days), price, and optional PT sessions. These plans show in the Member Portal and Renew modal." },
+  { q:["payment","billing","revenue","income","fees"], a:"**Revenue** shows your income dashboard with charts. **Fees & Billing** shows individual member payment records. Payments are recorded when members renew via Razorpay." },
+  { q:["discount","coupon","offer","promo"], a:"Go to **Discounts** tab. Create discount coupons with a code, percentage/flat discount, and validity. You can send coupons to members or enquiry leads." },
+  { q:["enquiry","lead","enquiries","new enquiry","walk-in"], a:"Go to **Enquiries** tab. Add walk-in enquiries with name, phone, interest. Track follow-ups and convert them to members." },
+  { q:["settings","profile","gym profile","gym name"], a:"Go to **Settings** to update your gym name, address, phone, logo, and other preferences." },
+  { q:["login","password","forgot password","can't login","unable to login"], a:"Use the email/password you registered with. If you forgot your password, click **Forgot Password** on the login screen — a reset link will be sent to your email." },
+  { q:["data not loading","blank page","error","not working","stuck"], a:"Try refreshing the page (Ctrl+R). Clear browser cache if needed. Check your internet connection. If the issue persists, create a support ticket below and our team will help." },
+  { q:["owner panel","admin panel","platform admin"], a:"The Owner/Admin panel is at **onlifit.vercel.app/owner**. Only platform admins can access it. It shows all gyms, revenue, and support tickets." },
+  { q:["export","download","report","pdf"], a:"In the **Members** page, you can export the member list. Revenue reports can be viewed in the Revenue tab. Use the AI Assistant for custom reports." },
+  { q:["ai assistant","ai","chatbot","help"], a:"The **AI Assistant** tab (✦ icon in sidebar) can answer questions about your gym data — member counts, revenue trends, attendance patterns, and more." },
+  { q:["freeze","freeze membership","pause membership"], a:"Members can freeze their membership from the Member Portal under **My Plan** → **Freeze Membership**. This is synced to the dashboard — you'll see the updated status." },
+  { q:["whatsapp","notification","remind","alert"], a:"Discount coupons can be sent to members/enquiries via the Discounts tab. WhatsApp integration for reminders is available on Growth and Multi-Branch plans." },
+];
+
+function SupportChatbot({ gymUser, toast }) {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [mode, setMode] = useState("chat"); // chat | tickets | newTicket | ticketView
+  const [tickets, setTickets] = useState([]);
+  const [selTicket, setSelTicket] = useState(null);
+  const [ticketMsgs, setTicketMsgs] = useState([]);
+  const [ticketReply, setTicketReply] = useState("");
+  const [newSubject, setNewSubject] = useState("");
+  const [newPriority, setNewPriority] = useState("medium");
+  const [newMsg, setNewMsg] = useState("");
+  const [loading, setLoading] = useState(false);
+  const chatRef = useRef(null);
+  const scrollToBottom = () => { if(chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; };
+
+  useEffect(() => {
+    if (open && messages.length === 0) {
+      setMessages([{ role:"bot", text:"👋 Hi! I'm **Onlifit Support Bot**. I can help you with:\n\n• Managing members, staff & plans\n• QR scanner & attendance issues\n• Payments & billing questions\n• Technical troubleshooting\n\nType your question or pick a topic below. If I can't help, you can **create a support ticket** for our admin team." }]);
+    }
+  }, [open]);
+  useEffect(scrollToBottom, [messages, ticketMsgs]);
+
+  // KB search
+  const searchKB = (q) => {
+    const lower = q.toLowerCase();
+    let best = null, bestScore = 0;
+    for (const item of ONLIFIT_KB) {
+      for (const keyword of item.q) {
+        const words = keyword.split(" ");
+        const matched = words.filter(w => lower.includes(w)).length;
+        const score = matched / words.length;
+        if (score > bestScore && score >= 0.5) { bestScore = score; best = item; }
+      }
+    }
+    return best;
+  };
+
+  const sendMessage = () => {
+    const q = input.trim();
+    if (!q) return;
+    const userMsg = { role:"user", text:q };
+    const result = searchKB(q);
+    const botMsg = result
+      ? { role:"bot", text:result.a }
+      : { role:"bot", text:"I couldn't find an answer for that. Here are your options:\n\n• Try rephrasing your question\n• **Create a support ticket** — our admin team will respond\n• Check the **AI Assistant** tab for data-related queries" };
+    setMessages(prev => [...prev, userMsg, botMsg]);
+    setInput("");
+  };
+
+  // Load tickets
+  const loadTickets = async () => {
+    setLoading(true);
+    try {
+      const { data } = await supabase.rpc("get_support_tickets", { p_gym_id: gymUser.gym_id });
+      setTickets(data || []);
+    } catch(e) { console.error(e); }
+    setLoading(false);
+  };
+
+  const loadTicketMsgs = async (tid) => {
+    try {
+      const { data } = await supabase.rpc("get_support_messages", { p_ticket_id: tid });
+      setTicketMsgs(data || []);
+    } catch(e) { console.error(e); }
+  };
+
+  const openTicket = (t) => {
+    setSelTicket(t);
+    setMode("ticketView");
+    loadTicketMsgs(t.ticket_id);
+  };
+
+  const createTicket = async () => {
+    if (!newSubject.trim() || !newMsg.trim()) return;
+    setLoading(true);
+    try {
+      const { data: tid } = await supabase.rpc("create_support_ticket", {
+        p_gym_id: gymUser.gym_id, p_gym_name: gymUser.gymName,
+        p_subject: newSubject.trim(), p_priority: newPriority, p_message: newMsg.trim()
+      });
+      toast("✅ Ticket " + tid + " created! Our team will respond soon.");
+      setNewSubject(""); setNewMsg(""); setNewPriority("medium");
+      setMode("tickets"); loadTickets();
+    } catch(e) { toast("Failed to create ticket"); console.error(e); }
+    setLoading(false);
+  };
+
+  const sendReply = async () => {
+    if (!ticketReply.trim() || !selTicket) return;
+    try {
+      await supabase.rpc("send_support_message", {
+        p_ticket_id: selTicket.ticket_id, p_sender: "gym",
+        p_sender_name: gymUser.gymName, p_message: ticketReply.trim()
+      });
+      setTicketReply("");
+      loadTicketMsgs(selTicket.ticket_id);
+    } catch(e) { console.error(e); }
+  };
+
+  // Realtime subscription for messages
+  useEffect(() => {
+    if (!selTicket) return;
+    const channel = supabase.channel("support-msg-" + selTicket.ticket_id)
+      .on("postgres_changes", { event:"INSERT", schema:"public", table:"support_messages", filter:`ticket_id=eq.${selTicket.ticket_id}` },
+        () => loadTicketMsgs(selTicket.ticket_id)
+      ).subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [selTicket?.ticket_id]);
+
+  // Realtime for ticket status changes
+  useEffect(() => {
+    if (mode !== "tickets") return;
+    const channel = supabase.channel("support-tickets-" + gymUser.gym_id)
+      .on("postgres_changes", { event:"*", schema:"public", table:"support_tickets", filter:`gym_id=eq.${gymUser.gym_id}` },
+        () => loadTickets()
+      ).subscribe();
+    return () => supabase.removeChannel(channel);
+  }, [mode, gymUser.gym_id]);
+
+  const quickTopics = [
+    { label:"Add Member", q:"How to add a member?" },
+    { label:"QR Issues", q:"QR scanner not working" },
+    { label:"Plans & Pricing", q:"How to create plans?" },
+    { label:"Payments", q:"How do payments work?" },
+    { label:"Staff", q:"How to add staff?" },
+    { label:"Login Help", q:"I can't login" },
+  ];
+
+  const cs = {
+    overlay: { position:"fixed", bottom:80, right:20, width:380, maxWidth:"calc(100vw - 32px)", height:560, maxHeight:"calc(100vh - 100px)", background:G.bg, borderRadius:16, boxShadow:"0 12px 48px rgba(0,0,0,.18)", border:`1.5px solid ${G.border}`, display:"flex", flexDirection:"column", zIndex:9999, overflow:"hidden" },
+    header: { background:`linear-gradient(135deg,${G.navy},#1a3a28)`, padding:"14px 16px", display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0 },
+    body: { flex:1, overflowY:"auto", padding:14 },
+    footer: { flexShrink:0, borderTop:`1px solid ${G.border}`, padding:10, display:"flex", gap:8 },
+    msgBot: { background:G.bg2, border:`1px solid ${G.border}`, borderRadius:"14px 14px 14px 4px", padding:"10px 14px", fontSize:13, color:G.navy, maxWidth:"88%", marginBottom:8, lineHeight:1.5 },
+    msgUser: { background:G.accent, borderRadius:"14px 14px 4px 14px", padding:"10px 14px", fontSize:13, color:"#fff", maxWidth:"88%", marginBottom:8, marginLeft:"auto", lineHeight:1.5 },
+    input: { flex:1, border:`1.5px solid ${G.border}`, borderRadius:10, padding:"9px 12px", fontSize:13, background:G.bg2, color:G.navy, outline:"none" },
+    sendBtn: { background:G.accent, color:"#fff", border:"none", borderRadius:10, padding:"9px 14px", fontSize:13, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" },
+  };
+
+  const renderBold = (text) => {
+    return text.split(/(\*\*[^*]+\*\*)/).map((part,i) =>
+      part.startsWith("**") && part.endsWith("**")
+        ? <strong key={i} style={{fontWeight:700}}>{part.slice(2,-2)}</strong>
+        : <span key={i}>{part}</span>
+    );
+  };
+
+  const fab = (
+    <button onClick={()=>{ setOpen(!open); if(!open && mode==="tickets") loadTickets(); }}
+      style={{ position:"fixed", bottom:20, right:20, width:52, height:52, borderRadius:16, background:`linear-gradient(135deg,${G.accent},#15803d)`, border:"none", boxShadow:"0 4px 20px rgba(22,163,74,.4)", cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, color:"#fff", zIndex:9999, transition:".2s" }}>
+      {open ? "✕" : "💬"}
+    </button>
+  );
+
+  return (
+    <>
+      {fab}
+      {open && (
+        <div style={cs.overlay}>
+          {/* Header */}
+          <div style={cs.header}>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              {(mode==="ticketView"||mode==="newTicket") && <button onClick={()=>{setMode(mode==="ticketView"?"tickets":"chat"); setSelTicket(null);}} style={{background:"none",border:"none",color:"#fff",fontSize:16,cursor:"pointer",padding:0}}>←</button>}
+              <div>
+                <div style={{fontSize:14,fontWeight:700,color:"#fff"}}>
+                  {mode==="chat"?"Onlifit Support":mode==="tickets"?"My Tickets":mode==="newTicket"?"New Ticket":selTicket?.subject}
+                </div>
+                <div style={{fontSize:10,color:"rgba(255,255,255,.5)"}}>{mode==="chat"?"Ask anything about Onlifit":mode==="tickets"?`${tickets.filter(t=>t.status==="open").length} open`:mode==="newTicket"?"Describe your issue":"Ticket #"+selTicket?.ticket_id}</div>
+              </div>
+            </div>
+            <div style={{display:"flex",gap:6}}>
+              {mode==="chat" && <button onClick={()=>{setMode("tickets"); loadTickets();}} style={{background:"rgba(255,255,255,.15)",border:"none",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:600,color:"#fff",cursor:"pointer"}}>🎟️ Tickets</button>}
+              {mode==="tickets" && <button onClick={()=>setMode("chat")} style={{background:"rgba(255,255,255,.15)",border:"none",borderRadius:8,padding:"5px 10px",fontSize:11,fontWeight:600,color:"#fff",cursor:"pointer"}}>💬 Chat</button>}
+              <button onClick={()=>setOpen(false)} style={{background:"none",border:"none",color:"rgba(255,255,255,.6)",fontSize:18,cursor:"pointer"}}>✕</button>
+            </div>
+          </div>
+
+          {/* ─── CHAT MODE ─── */}
+          {mode==="chat" && <>
+            <div ref={chatRef} style={cs.body}>
+              {messages.map((m,i) => (
+                <div key={i} style={m.role==="bot"?cs.msgBot:cs.msgUser}>
+                  {m.text.split("\n").map((line,j) => <div key={j}>{renderBold(line)}{j<m.text.split("\n").length-1&&<br/>}</div>)}
+                </div>
+              ))}
+              {messages.length>0 && messages.length<=2 && (
+                <div style={{display:"flex",flexWrap:"wrap",gap:6,marginTop:4}}>
+                  {quickTopics.map(t => (
+                    <button key={t.label} onClick={()=>{setInput(t.q); setTimeout(()=>{const r=searchKB(t.q); setMessages(prev=>[...prev,{role:"user",text:t.q},{role:"bot",text:r?r.a:"No result"}]); },50);}}
+                      style={{background:G.bg3,border:`1px solid ${G.border2}`,borderRadius:20,padding:"5px 12px",fontSize:11,fontWeight:600,color:G.accent,cursor:"pointer"}}>{t.label}</button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div style={{padding:"6px 10px",borderTop:`1px solid ${G.border}`}}>
+              <button onClick={()=>setMode("newTicket")}
+                style={{width:"100%",background:G.bg3,border:`1.5px solid ${G.border2}`,borderRadius:10,padding:"8px",fontSize:12,fontWeight:600,color:G.accent,cursor:"pointer",marginBottom:6}}>
+                🎟️ Can't find answer? Create Support Ticket
+              </button>
+            </div>
+            <div style={cs.footer}>
+              <input style={cs.input} value={input} onChange={e=>setInput(e.target.value)} placeholder="Type your question..."
+                onKeyDown={e=>{ if(e.key==="Enter") sendMessage(); }}
+                onFocus={e=>e.target.style.borderColor=G.accent} onBlur={e=>e.target.style.borderColor=G.border} />
+              <button style={cs.sendBtn} onClick={sendMessage}>Send</button>
+            </div>
+          </>}
+
+          {/* ─── TICKETS LIST ─── */}
+          {mode==="tickets" && (
+            <div style={cs.body}>
+              <button onClick={()=>setMode("newTicket")}
+                style={{width:"100%",background:G.accent,border:"none",borderRadius:10,padding:"12px",fontSize:13,fontWeight:700,color:"#fff",cursor:"pointer",marginBottom:14}}>
+                + New Support Ticket
+              </button>
+              {loading && <div style={{textAlign:"center",padding:20,color:G.text3,fontSize:13}}>Loading...</div>}
+              {!loading && tickets.length===0 && <div style={{textAlign:"center",padding:30,color:G.text3,fontSize:13}}>No tickets yet. Create one if you need help!</div>}
+              {tickets.map(t => (
+                <div key={t.ticket_id} onClick={()=>openTicket(t)}
+                  style={{background:G.bg2,border:`1.5px solid ${t.status==="open"?G.accentL:G.border}`,borderRadius:12,padding:"12px 14px",marginBottom:8,cursor:"pointer",transition:".15s"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4}}>
+                    <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11,color:G.text3}}>{t.ticket_id}</span>
+                    <span style={{fontSize:10,fontWeight:600,padding:"2px 8px",borderRadius:20,
+                      background:t.status==="open"?G.yellowFade:G.bg4,
+                      color:t.status==="open"?G.yellow:G.accent,
+                      border:`1px solid ${t.status==="open"?G.yellowBorder:G.accentL}`
+                    }}>{t.status==="open"?"⏳ Open":"✓ Resolved"}</span>
+                  </div>
+                  <div style={{fontSize:13,fontWeight:600,color:G.navy}}>{t.subject}</div>
+                  <div style={{fontSize:11,color:G.text3,marginTop:2}}>{new Date(t.created_at).toLocaleDateString()}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ─── NEW TICKET ─── */}
+          {mode==="newTicket" && (
+            <div style={cs.body}>
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:12,fontWeight:600,color:G.navy,display:"block",marginBottom:4}}>Subject</label>
+                <input style={{...cs.input,width:"100%"}} value={newSubject} onChange={e=>setNewSubject(e.target.value)} placeholder="Brief description of your issue" />
+              </div>
+              <div style={{marginBottom:12}}>
+                <label style={{fontSize:12,fontWeight:600,color:G.navy,display:"block",marginBottom:4}}>Priority</label>
+                <div style={{display:"flex",gap:8}}>
+                  {["low","medium","high"].map(p => (
+                    <button key={p} onClick={()=>setNewPriority(p)}
+                      style={{flex:1,padding:"8px",borderRadius:8,fontSize:12,fontWeight:600,cursor:"pointer",textTransform:"capitalize",
+                        background:newPriority===p?(p==="high"?G.redFade:p==="medium"?G.yellowFade:G.bg3):G.bg2,
+                        color:newPriority===p?(p==="high"?G.red:p==="medium"?G.yellow:G.accent):G.text3,
+                        border:`1.5px solid ${newPriority===p?(p==="high"?G.redBorder:p==="medium"?G.yellowBorder:G.accentL):G.border}`
+                      }}>{p}</button>
+                  ))}
+                </div>
+              </div>
+              <div style={{marginBottom:14}}>
+                <label style={{fontSize:12,fontWeight:600,color:G.navy,display:"block",marginBottom:4}}>Describe the issue</label>
+                <textarea style={{...cs.input,width:"100%",minHeight:100,resize:"vertical",fontFamily:"'Inter',sans-serif"}} value={newMsg} onChange={e=>setNewMsg(e.target.value)} placeholder="Explain what happened, steps to reproduce, etc." />
+              </div>
+              <button onClick={createTicket} disabled={loading||!newSubject.trim()||!newMsg.trim()}
+                style={{width:"100%",background:(!newSubject.trim()||!newMsg.trim())?G.border:G.accent,border:"none",borderRadius:10,padding:"12px",fontSize:13,fontWeight:700,color:"#fff",cursor:(!newSubject.trim()||!newMsg.trim())?"not-allowed":"pointer"}}>
+                {loading?"Creating...":"Submit Ticket"}
+              </button>
+            </div>
+          )}
+
+          {/* ─── TICKET VIEW (Chat) ─── */}
+          {mode==="ticketView" && selTicket && (
+            <>
+              <div ref={chatRef} style={cs.body}>
+                {ticketMsgs.map((m,i) => (
+                  <div key={i} style={{display:"flex",flexDirection:"column",alignItems:m.sender==="gym"?"flex-end":"flex-start",marginBottom:8}}>
+                    <div style={{fontSize:10,color:G.text3,marginBottom:2,fontWeight:600}}>{m.sender==="admin"?"🛡️ Onlifit Admin":m.sender_name||"You"}</div>
+                    <div style={m.sender==="gym"?cs.msgUser:cs.msgBot}>{renderBold(m.message)}</div>
+                    <div style={{fontSize:9,color:G.text3}}>{new Date(m.created_at).toLocaleString()}</div>
+                  </div>
+                ))}
+                {ticketMsgs.length===0 && <div style={{textAlign:"center",padding:20,color:G.text3,fontSize:13}}>Loading messages...</div>}
+              </div>
+              {selTicket.status==="open" && (
+                <div style={cs.footer}>
+                  <input style={cs.input} value={ticketReply} onChange={e=>setTicketReply(e.target.value)} placeholder="Type a reply..."
+                    onKeyDown={e=>{ if(e.key==="Enter") sendReply(); }} />
+                  <button style={cs.sendBtn} onClick={sendReply}>Send</button>
+                </div>
+              )}
+              {selTicket.status==="resolved" && (
+                <div style={{padding:12,textAlign:"center",fontSize:12,color:G.accent,fontWeight:600,background:G.bg3,borderTop:`1px solid ${G.border}`}}>
+                  ✅ This ticket is resolved
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
 // ─── NAV CONFIG ───────────────────────────────────────────────────────────────
 const NAV = [
   {section:'Core',    items:[{id:'dashboard',icon:'📊',label:'Dashboard'},{id:'members',icon:'👥',label:'Members'},{id:'attendance',icon:'📅',label:'Attendance',badge:'Live'},{id:'enquiries',icon:'📋',label:'Enquiries'}]},
@@ -3830,6 +4155,7 @@ export default function App() {
 
       </div>
       <NotificationCenter notifications={visibleNotifs} open={notifOpen} onClose={()=>setNotifOpen(false)} onDismiss={dismissNotif} onDismissAll={dismissAllNotifs} gymName={gymUser?.gymName}/>
+      <SupportChatbot gymUser={gymUser} toast={showToast}/>
       {toastMsg&&<Toast msg={toastMsg} onDone={()=>setToast(null)}/>}
     </div>
   );

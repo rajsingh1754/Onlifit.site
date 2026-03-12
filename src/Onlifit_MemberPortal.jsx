@@ -142,16 +142,10 @@ function LoginScreen({ onLogin }) {
     const isPhone = /^\+?\d[\d\s-]{7,}$/.test(input);
     setSending(true);
     try {
-      let data;
-      if (isPhone) {
-        const phone = input.replace(/[\s-]/g, '');
-        const { data: d } = await supabase.from('members').select('*').or(`phone.eq.${phone},phone.eq.+91${phone},phone.ilike.%${phone.slice(-10)}%`).limit(1).single();
-        data = d;
-      } else {
-        const id = input.toUpperCase();
-        const { data: d } = await supabase.from('members').select('*').eq('id', id).single();
-        data = d;
-      }
+      // Use SECURITY DEFINER function to bypass RLS for pre-auth lookup
+      const { data: rows, error: lookupErr } = await supabase.rpc('lookup_member_for_login', { input });
+      const data = rows?.[0] || null;
+      if (lookupErr) { setError("Lookup failed. Try again."); setSending(false); return; }
       if (!data) { setError("Not found. Check your Member ID or phone number."); setSending(false); return; }
       if (!data.phone) { setError("No phone number on file. Contact your gym."); setSending(false); return; }
 

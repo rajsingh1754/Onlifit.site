@@ -1239,13 +1239,11 @@ function Panel({ onLogout }) {
       await supabase.from('gym_profiles').insert({ gym_id: newGym.id, gym_name: newGym.name, city: newGym.city });
 
       // 4. Re-login as admin (signUp switches the session to new user)
-      const adminEmail = (await supabase.auth.getUser())?.data?.user?.email;
-      if (adminEmail && !isAdminEmail(adminEmail)) {
-        // Session switched to new gym user — re-auth as admin
-        const storedPw = sessionStorage.getItem('onlifit_admin_pw');
-        if (storedPw) {
-          await supabase.auth.signInWithPassword({ email: ADMIN_EMAILS[0], password: storedPw });
-        }
+      // Supabase enforces a minimum gap between auth requests
+      await new Promise(r => setTimeout(r, 6000));
+      const storedPw = sessionStorage.getItem('onlifit_admin_pw');
+      if (storedPw) {
+        await supabase.auth.signInWithPassword({ email: ADMIN_EMAILS[0], password: storedPw });
       }
     } catch(e) { console.error("[OwnerPanel] Add gym error:", e); toast$("Failed to onboard gym. Try again.", "error"); return; }
     setGyms(gs=>[...gs,newGym]);

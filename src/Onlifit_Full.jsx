@@ -2178,11 +2178,106 @@ function PageFees({ toast }) {
 }
 
 function PageDiscounts({ toast }) {
+  const { members, enquiries, gymUser } = useGym();
   const [coupons,setCoupons]=useState([{code:'IRON10',type:'pct',val:10,plan:'All Plans',uses:45,max:100,expiry:'Dec 31',cat:'General'},{code:'NEWJOIN20',type:'pct',val:20,plan:'All Plans',uses:23,max:50,expiry:'Mar 31',cat:'New Join'},{code:'REFER500',type:'flat',val:500,plan:'All Plans',uses:18,max:null,expiry:'Dec 31',cat:'Referral'}]);
+  const [sendModal, setSendModal] = useState(null);
+  const [sendTarget, setSendTarget] = useState('members');
+  const [selectedIds, setSelectedIds] = useState([]);
+
+  const gymName = gymUser?.gymName || 'our gym';
+
+  const buildMsg = (c, name) => {
+    const disc = c.type === 'pct' ? `${c.val}% OFF` : `₹${c.val} OFF`;
+    return `🎉 Exclusive Offer from ${gymName}!\n\nUse code *${c.code}* to get *${disc}* on ${c.plan}.\n\n⏰ Valid till ${c.expiry}\n\nJoin/Renew now and crush your fitness goals! 💪🏋️`;
+  };
+
+  const sendToSelected = () => {
+    if (!selectedIds.length) { toast('Select at least one recipient'); return; }
+    const list = sendTarget === 'members' ? members : enquiries;
+    let sent = 0;
+    selectedIds.forEach(id => {
+      const person = list.find(p => p.id === id);
+      if (!person) return;
+      const phone = (person.phone || '').replace(/[\s+\-]/g, '');
+      if (!phone) return;
+      const msg = buildMsg(sendModal, person.name);
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+      sent++;
+    });
+    toast(`📤 Sent to ${sent} ${sendTarget}`);
+    setSendModal(null); setSelectedIds([]);
+  };
+
+  const sendToAll = () => {
+    const list = sendTarget === 'members' ? members : enquiries;
+    const withPhone = list.filter(p => p.phone);
+    if (!withPhone.length) { toast('No recipients with phone numbers'); return; }
+    withPhone.slice(0, 20).forEach(p => {
+      const phone = (p.phone || '').replace(/[\s+\-]/g, '');
+      if (!phone) return;
+      const msg = buildMsg(sendModal, p.name);
+      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+    });
+    toast(`📤 Sending to ${Math.min(withPhone.length, 20)} ${sendTarget}`);
+    setSendModal(null); setSelectedIds([]);
+  };
+
+  const toggleId = (id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  const recipientList = sendTarget === 'members' ? members : enquiries;
+
   return (
     <div className="page-anim">
       <div className="rg-4" style={{marginBottom:16}}><StatCard label="Active Coupons" value={String(coupons.length)} icon="🏷️"/><StatCard label="Total Redeemed" value={String(coupons.reduce((a,c)=>a+c.uses,0))} icon="✅"/><StatCard label="Discount Given" value="₹18,450" dim icon="💸"/><StatCard label="Active Offers" value="2" dim icon="🎁"/></div>
-      <div style={s.card()}><SH title="Discount Coupons" right={<Btn variant="primary" size="sm" onClick={()=>toast('Create coupon modal...')}>+ Create Coupon</Btn>}/><div style={s.col(8)}>{coupons.map((c,i)=><div key={c.code} style={{background:G.bg2,border:`1.5px dashed ${G.border2}`,borderRadius:10,padding:'12px 14px',...s.flex(12)}}><div style={{width:36,height:36,borderRadius:8,background:G.bg4,border:`1px solid ${G.accentL}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>🏷️</div><div style={{flex:1}}><div style={{...s.mono,fontSize:14,fontWeight:700,color:G.accent}}>{c.code}</div><div style={{fontSize:11,color:G.text3,marginTop:2}}>{c.type==='pct'?c.val+'% off':'₹'+c.val+' off'} · Until {c.expiry}</div><div style={{...s.flex(6),marginTop:4}}><Badge bright>{c.cat}</Badge><span style={{fontSize:11,color:G.text2}}>{c.uses}{c.max?'/'+c.max:''} uses</span></div></div><div style={s.col(5)}><Btn variant="ghost" size="xs" onClick={()=>toast(`Copied: ${c.code}`)}>Copy</Btn><Btn variant="danger" size="xs" onClick={()=>{setCoupons(p=>p.filter((_,j)=>j!==i));toast('Deleted');}}>Delete</Btn></div></div>)}</div></div>
+      <div style={s.card()}><SH title="Discount Coupons" right={<Btn variant="primary" size="sm" onClick={()=>toast('Create coupon modal...')}>+ Create Coupon</Btn>}/><div style={s.col(8)}>{coupons.map((c,i)=><div key={c.code} style={{background:G.bg2,border:`1.5px dashed ${G.border2}`,borderRadius:10,padding:'12px 14px',...s.flex(12)}}><div style={{width:36,height:36,borderRadius:8,background:G.bg4,border:`1px solid ${G.accentL}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>🏷️</div><div style={{flex:1}}><div style={{...s.mono,fontSize:14,fontWeight:700,color:G.accent}}>{c.code}</div><div style={{fontSize:11,color:G.text3,marginTop:2}}>{c.type==='pct'?c.val+'% off':'₹'+c.val+' off'} · Until {c.expiry}</div><div style={{...s.flex(6),marginTop:4}}><Badge bright>{c.cat}</Badge><span style={{fontSize:11,color:G.text2}}>{c.uses}{c.max?'/'+c.max:''} uses</span></div></div><div style={s.col(5)}><Btn variant="ghost" size="xs" onClick={()=>{setSendModal(c);setSendTarget('members');setSelectedIds([]);}}>📤 Send</Btn><Btn variant="ghost" size="xs" onClick={()=>toast(`Copied: ${c.code}`)}>Copy</Btn><Btn variant="danger" size="xs" onClick={()=>{setCoupons(p=>p.filter((_,j)=>j!==i));toast('Deleted');}}>Delete</Btn></div></div>)}</div></div>
+
+      {/* Send Coupon Modal */}
+      {sendModal && (
+        <Modal onClose={()=>setSendModal(null)}>
+          <div style={{padding:24,maxWidth:500,width:'100%'}}>
+            <h3 style={{color:G.text,margin:'0 0 4px',fontSize:16}}>📤 Send Coupon: <span style={{color:G.accent,...s.mono}}>{sendModal.code}</span></h3>
+            <div style={{fontSize:12,color:G.text2,marginBottom:16}}>{sendModal.type==='pct'?sendModal.val+'% off':'₹'+sendModal.val+' off'} · {sendModal.plan} · Until {sendModal.expiry}</div>
+
+            {/* Target toggle */}
+            <div style={{display:'flex',gap:8,marginBottom:16}}>
+              {['members','enquiries'].map(t=>(
+                <button key={t} onClick={()=>{setSendTarget(t);setSelectedIds([]);}} style={{flex:1,padding:'8px 12px',borderRadius:8,fontSize:13,fontWeight:sendTarget===t?700:500,background:sendTarget===t?G.accent+'18':G.bg2,color:sendTarget===t?G.accent:G.text2,border:`1.5px solid ${sendTarget===t?G.accent:G.border}`,cursor:'pointer'}}>
+                  {t==='members'?`👥 Members (${members.length})`:`📋 Enquiries (${enquiries.length})`}
+                </button>
+              ))}
+            </div>
+
+            {/* Quick actions */}
+            <div style={{display:'flex',gap:8,marginBottom:12}}>
+              <Btn variant="primary" size="sm" onClick={sendToAll}>Send to All {sendTarget === 'members' ? 'Members' : 'Leads'}</Btn>
+              <Btn variant="ghost" size="sm" onClick={()=>setSelectedIds(recipientList.map(p=>p.id))}>Select All</Btn>
+              <Btn variant="ghost" size="sm" onClick={()=>setSelectedIds([])}>Clear</Btn>
+            </div>
+
+            {/* Recipient list */}
+            <div style={{maxHeight:300,overflowY:'auto',border:`1px solid ${G.border}`,borderRadius:8}}>
+              {recipientList.length === 0 && <div style={{padding:20,textAlign:'center',color:G.text2,fontSize:13}}>No {sendTarget} found</div>}
+              {recipientList.map(p=>(
+                <label key={p.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',borderBottom:`1px solid ${G.border}`,cursor:'pointer',background:selectedIds.includes(p.id)?G.accent+'08':'transparent'}}>
+                  <input type="checkbox" checked={selectedIds.includes(p.id)} onChange={()=>toggleId(p.id)} style={{accentColor:G.accent}}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:600,color:G.text}}>{p.name}</div>
+                    <div style={{fontSize:11,color:G.text2}}>{p.phone||'No phone'}{p.email?' · '+p.email:''}</div>
+                  </div>
+                  {!p.phone && <span style={{fontSize:10,color:G.red,fontWeight:600}}>No phone</span>}
+                </label>
+              ))}
+            </div>
+
+            {selectedIds.length > 0 && (
+              <div style={{marginTop:12,display:'flex',gap:8,alignItems:'center'}}>
+                <Btn variant="primary" size="sm" onClick={sendToSelected}>📤 Send via WhatsApp ({selectedIds.length})</Btn>
+                <span style={{fontSize:11,color:G.text2}}>Opens WhatsApp for each recipient</span>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

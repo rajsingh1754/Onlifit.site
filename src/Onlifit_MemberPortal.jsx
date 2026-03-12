@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { QRCodeCanvas } from "qrcode.react";
 import { supabase } from "./supabase";
 
@@ -81,16 +81,66 @@ const nowTime = () => { const d=new Date(); return `${fmt(d.getHours())}:${fmt(d
 // LOGIN SCREEN
 // ══════════════════════════════════════════════════════════════════════════════
 function LoginScreen({ onLogin }) {
-  const [step, setStep]     = useState("id");   // id | loading
+  const [step, setStep]     = useState("id");   // id | otp | loading
   const [memberId, setMId]  = useState("");
   const [error, setError]   = useState("");
   const [foundMember, setFoundMember] = useState(null);
+  const [memberPhone, setMemberPhone] = useState("");
+  const [otp, setOtp]       = useState(["","","","","",""]);
+  const [resendTimer, setResendTimer] = useState(0);
+  const [sending, setSending] = useState(false);
+  const otpRefs = [useRef(), useRef(), useRef(), useRef(), useRef(), useRef()];
 
+  // Resend cooldown timer
+  useEffect(() => {
+    if (resendTimer <= 0) return;
+    const t = setTimeout(() => setResendTimer(resendTimer - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendTimer]);
+
+  // Normalize phone to E.164 format (+91XXXXXXXXXX)
+  const normalizePhone = (raw) => {
+    const digits = raw.replace(/\D/g, '');
+    const last10 = digits.slice(-10);
+    return '+91' + last10;
+  };
+
+  // Build member object from DB row
+  const buildMember = async (data) => {
+    const expDate = data.expiry_date ? new Date(data.expiry_date) : null;
+    const daysLeft = expDate ? Math.max(0, Math.ceil((expDate - Date.now()) / 864e5)) : 0;
+    const m = {
+      id: data.id, name: data.name, init: data.initials || data.name.split(' ').map(w=>w[0]).join(''),
+      phone: data.phone, email: data.email, dob: data.dob || '',
+      plan: data.plan, planPrice: 0, expiry: data.expiry_date, daysLeft,
+      status: data.status, joinDate: data.start_date, branch: 'Main',
+      trainer: data.trainer || '', trainerInit: (data.trainer||'').split(' ').map(w=>w[0]).join(''), trainerSpec: '',
+      totalVisits: data.visits || 0, streak: 0, thisMonth: 0,
+      gym_id: data.gym_id || 'GYM001',
+      freeze_start: data.freeze_start || '',
+      emergency_contact: data.emergency_contact || '',
+      emergency_phone: data.emergency_phone || '',
+      attendance: [], ptSessions: [],
+      plan_details: { name: data.plan, price: 0, duration: '', features: ["Gym Access"], nextBilling: data.expiry_date },
+      workout: { goal:"General Fitness", level:"Intermediate", weeks:12, days:[] },
+    };
+    const { data: att } = await supabase.from('attendance').select('*').eq('member_id', data.id).order('created_at', { ascending: false }).limit(30);
+    if (att && att.length > 0) {
+      m.attendance = att.map(a => ({ date: a.date, day: '', checked: true, time: a.check_in }));
+      const thisMonth = new Date().toLocaleString('en-US',{month:'short'});
+      m.thisMonth = att.filter(a => a.date?.includes(thisMonth)).length;
+    }
+    const { data: planData } = await supabase.from('plans').select('price').eq('gym_id', data.gym_id).eq('name', data.plan).single();
+    if (planData) { m.planPrice = planData.price; m.plan_details.price = planData.price; }
+    return m;
+  };
+
+  // Step 1: Look up member and send OTP
   const handleIdSubmit = async () => {
     const input = memberId.trim();
     if (!input) { setError("Please enter your Member ID or registered phone number."); return; }
-    // Determine if input is a phone number or member ID
     const isPhone = /^\+?\d[\d\s-]{7,}$/.test(input);
+    setSending(true);
     try {
       let data;
       if (isPhone) {
@@ -102,42 +152,93 @@ function LoginScreen({ onLogin }) {
         const { data: d } = await supabase.from('members').select('*').eq('id', id).single();
         data = d;
       }
-      if (!data) { setError("Not found. Check your Member ID or phone number."); return; }
-      const expDate = data.expiry_date ? new Date(data.expiry_date) : null;
-      const daysLeft = expDate ? Math.max(0, Math.ceil((expDate - Date.now()) / 864e5)) : 0;
-      const m = {
-        id: data.id, name: data.name, init: data.initials || data.name.split(' ').map(w=>w[0]).join(''),
-        phone: data.phone, email: data.email, dob: data.dob || '',
-        plan: data.plan, planPrice: 0, expiry: data.expiry_date, daysLeft,
-        status: data.status, joinDate: data.start_date, branch: 'Main',
-        trainer: data.trainer || '', trainerInit: (data.trainer||'').split(' ').map(w=>w[0]).join(''), trainerSpec: '',
-        totalVisits: data.visits || 0, streak: 0, thisMonth: 0,
-        gym_id: data.gym_id || 'GYM001',
-        freeze_start: data.freeze_start || '',
-        emergency_contact: data.emergency_contact || '',
-        emergency_phone: data.emergency_phone || '',
-        attendance: [], ptSessions: [],
-        plan_details: { name: data.plan, price: 0, duration: '', features: ["Gym Access"], nextBilling: data.expiry_date },
-        workout: { goal:"General Fitness", level:"Intermediate", weeks:12, days:[] },
-      };
-      // Load attendance for this member
-      const { data: att } = await supabase.from('attendance').select('*').eq('member_id', data.id).order('created_at', { ascending: false }).limit(30);
-      if (att && att.length > 0) {
-        m.attendance = att.map(a => ({ date: a.date, day: '', checked: true, time: a.check_in }));
-        const thisMonth = new Date().toLocaleString('en-US',{month:'short'});
-        m.thisMonth = att.filter(a => a.date?.includes(thisMonth)).length;
+      if (!data) { setError("Not found. Check your Member ID or phone number."); setSending(false); return; }
+      if (!data.phone) { setError("No phone number on file. Contact your gym."); setSending(false); return; }
+
+      const e164 = normalizePhone(data.phone);
+      setMemberPhone(e164);
+
+      // Send OTP via Supabase Phone Auth
+      const { error: otpErr } = await supabase.auth.signInWithOtp({ phone: e164 });
+      if (otpErr) {
+        if (otpErr.message?.includes('not enabled') || otpErr.message?.includes('provider')) {
+          setError("SMS service not configured yet. Contact support.");
+        } else {
+          setError(otpErr.message || "Failed to send OTP. Try again.");
+        }
+        setSending(false);
+        return;
       }
-      // Load plan price
-      const { data: planData } = await supabase.from('plans').select('price').eq('gym_id', data.gym_id).eq('name', data.plan).single();
-      if (planData) { m.planPrice = planData.price; m.plan_details.price = planData.price; }
+
+      const m = await buildMember(data);
       setFoundMember(m);
       setError("");
-      setStep("loading");
-      setTimeout(() => { onLogin(m); }, 1500);
+      setOtp(["","","","","",""]);
+      setResendTimer(30);
+      setStep("otp");
+      setTimeout(() => otpRefs[0]?.current?.focus(), 100);
     } catch(e) {
       setError("Not found. Check your Member ID or phone number.");
     }
+    setSending(false);
   };
+
+  // Handle OTP digit input
+  const handleOtpChange = (idx, val) => {
+    if (val && !/^\d$/.test(val)) return;
+    const next = [...otp];
+    next[idx] = val;
+    setOtp(next);
+    setError("");
+    if (val && idx < 5) otpRefs[idx + 1]?.current?.focus();
+  };
+
+  const handleOtpKeyDown = (idx, e) => {
+    if (e.key === "Backspace" && !otp[idx] && idx > 0) {
+      otpRefs[idx - 1]?.current?.focus();
+    }
+    if (e.key === "Enter" && otp.every(d => d)) verifyOtp();
+  };
+
+  // Handle paste of full OTP
+  const handleOtpPaste = (e) => {
+    const paste = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (paste.length === 6) {
+      e.preventDefault();
+      const next = paste.split('');
+      setOtp(next);
+      otpRefs[5]?.current?.focus();
+    }
+  };
+
+  // Step 2: Verify OTP
+  const verifyOtp = async () => {
+    const token = otp.join('');
+    if (token.length !== 6) { setError("Enter all 6 digits."); return; }
+    setSending(true);
+    try {
+      const { error: verifyErr } = await supabase.auth.verifyOtp({ phone: memberPhone, token, type: 'sms' });
+      if (verifyErr) { setError("Invalid OTP. Please try again."); setSending(false); return; }
+      setError("");
+      setStep("loading");
+      setTimeout(() => { onLogin(foundMember); }, 1500);
+    } catch(e) {
+      setError("Verification failed. Try again.");
+    }
+    setSending(false);
+  };
+
+  // Resend OTP
+  const resendOtp = async () => {
+    if (resendTimer > 0) return;
+    setSending(true);
+    const { error: otpErr } = await supabase.auth.signInWithOtp({ phone: memberPhone });
+    if (otpErr) { setError("Failed to resend. Try again."); }
+    else { setResendTimer(30); setOtp(["","","","","",""]); setError(""); otpRefs[0]?.current?.focus(); }
+    setSending(false);
+  };
+
+  const maskedPhone = memberPhone ? memberPhone.slice(0, 4) + '••••' + memberPhone.slice(-3) : '';
 
   return (
     <div style={{ minHeight:"100vh", background:"linear-gradient(135deg,#0f172a 0%,#0f2d1a 50%,#0a1628 100%)", display:"flex", alignItems:"center", justifyContent:"center", padding:20, position:"relative", overflow:"hidden" }}>
@@ -171,16 +272,72 @@ function LoginScreen({ onLogin }) {
                 placeholder="IQ-KRM-XXXX or 98765 43210"
                 style={{ width:"100%", background:"rgba(255,255,255,.08)", border:`1.5px solid ${error?"#f87171":"rgba(255,255,255,.15)"}`, borderRadius:10, padding:"13px 16px", fontSize:16, color:"#fff", fontFamily:"'JetBrains Mono',monospace", letterSpacing:2, marginBottom:error?8:20, transition:".2s", outline:"none" }}
                 onFocus={e=>e.target.style.borderColor="rgba(22,163,74,.6)"} onBlur={e=>e.target.style.borderColor=error?"#f87171":"rgba(255,255,255,.15)"}
+                disabled={sending}
               />
               {error && <div style={{ fontSize:12, color:"#f87171", marginBottom:14, display:"flex", alignItems:"center", gap:6 }}>⚠ {error}</div>}
 
-              <button className="btn-primary" onClick={handleIdSubmit}
-                style={{ width:"100%", background:G.accent, border:"none", borderRadius:10, padding:"14px", fontSize:15, fontWeight:700, color:"#fff", cursor:"pointer", transition:".2s", boxShadow:"0 4px 16px rgba(22,163,74,.35)" }}>
-                Login →
+              <button className="btn-primary" onClick={handleIdSubmit} disabled={sending}
+                style={{ width:"100%", background:sending?"#374151":G.accent, border:"none", borderRadius:10, padding:"14px", fontSize:15, fontWeight:700, color:"#fff", cursor:sending?"wait":"pointer", transition:".2s", boxShadow:sending?"none":"0 4px 16px rgba(22,163,74,.35)" }}>
+                {sending ? "Sending OTP..." : "Send OTP →"}
               </button>
 
               <div style={{ textAlign:"center", marginTop:18, fontSize:12, color:"rgba(255,255,255,.25)" }}>
-                Use the Member ID or phone number given by your gym
+                We'll send a 6-digit OTP to your registered phone
+              </div>
+            </div>
+          )}
+
+          {/* STEP: OTP */}
+          {step === "otp" && (
+            <div>
+              <button onClick={() => { setStep("id"); setError(""); setOtp(["","","","","",""]); }}
+                style={{ background:"none", border:"none", color:"rgba(255,255,255,.4)", cursor:"pointer", fontSize:13, fontWeight:600, marginBottom:16, padding:0, display:"flex", alignItems:"center", gap:4 }}>
+                ← Back
+              </button>
+
+              <div style={{ fontSize:18, fontWeight:700, color:"#fff", marginBottom:4 }}>Verify OTP 🔐</div>
+              <div style={{ fontSize:13, color:"rgba(255,255,255,.45)", marginBottom:24 }}>
+                Enter the 6-digit code sent to <span style={{ color:G.accent, fontWeight:600 }}>{maskedPhone}</span>
+              </div>
+
+              {/* 6-digit OTP boxes */}
+              <div style={{ display:"flex", gap:8, justifyContent:"center", marginBottom:error?8:20 }} onPaste={handleOtpPaste}>
+                {otp.map((d, i) => (
+                  <input key={i} ref={otpRefs[i]} value={d} maxLength={1} inputMode="numeric"
+                    onChange={e => handleOtpChange(i, e.target.value)}
+                    onKeyDown={e => handleOtpKeyDown(i, e)}
+                    style={{
+                      width:46, height:54, textAlign:"center", fontSize:22, fontWeight:700, color:"#fff",
+                      fontFamily:"'JetBrains Mono',monospace", background:"rgba(255,255,255,.08)",
+                      border:`2px solid ${d ? "rgba(22,163,74,.6)" : "rgba(255,255,255,.15)"}`,
+                      borderRadius:12, outline:"none", transition:".2s", caretColor:G.accent
+                    }}
+                    onFocus={e => { e.target.style.borderColor="rgba(22,163,74,.8)"; e.target.style.background="rgba(22,163,74,.08)"; }}
+                    onBlur={e => { e.target.style.borderColor=d?"rgba(22,163,74,.6)":"rgba(255,255,255,.15)"; e.target.style.background="rgba(255,255,255,.08)"; }}
+                    disabled={sending}
+                  />
+                ))}
+              </div>
+              {error && <div style={{ fontSize:12, color:"#f87171", marginBottom:14, textAlign:"center", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>⚠ {error}</div>}
+
+              <button className="btn-primary" onClick={verifyOtp} disabled={sending || otp.some(d=>!d)}
+                style={{
+                  width:"100%", background:(sending||otp.some(d=>!d))?"#374151":G.accent, border:"none", borderRadius:10,
+                  padding:"14px", fontSize:15, fontWeight:700, color:"#fff", cursor:(sending||otp.some(d=>!d))?"not-allowed":"pointer",
+                  transition:".2s", boxShadow:(sending||otp.some(d=>!d))?"none":"0 4px 16px rgba(22,163,74,.35)"
+                }}>
+                {sending ? "Verifying..." : "Verify & Login"}
+              </button>
+
+              <div style={{ textAlign:"center", marginTop:16 }}>
+                {resendTimer > 0 ? (
+                  <span style={{ fontSize:12, color:"rgba(255,255,255,.35)" }}>Resend OTP in <span style={{ color:G.accent, fontWeight:600 }}>{resendTimer}s</span></span>
+                ) : (
+                  <button onClick={resendOtp} disabled={sending}
+                    style={{ background:"none", border:"none", color:G.accent, cursor:"pointer", fontSize:13, fontWeight:600, textDecoration:"underline", padding:0 }}>
+                    Resend OTP
+                  </button>
+                )}
               </div>
             </div>
           )}

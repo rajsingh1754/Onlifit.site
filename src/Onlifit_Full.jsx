@@ -2209,6 +2209,7 @@ function PageStaff({ toast }) {
   const [showAdd, setShowAdd]   = useState(false);
   const [showView, setShowView] = useState(null);
   const [showEdit, setShowEdit] = useState(null);
+  const [showStaffQR, setShowStaffQR] = useState(null);
   const blank = {name:'',phone:'',email:'',role:'Trainer',branch:'Koramangala',salary:'',joined:new Date().toISOString().slice(0,10),shift:'Full Day'};
   const [form, setForm] = useState(blank);
   const set = (k,v) => setForm(p=>({...p,[k]:v}));
@@ -2396,6 +2397,7 @@ function PageStaff({ toast }) {
                     <td style={{padding:'11px 13px',...s.mono,fontSize:12,fontWeight:600,color:G.accent}}>{getMembersHandled(st.name)}</td>
                     <td style={{padding:'11px 13px'}}>
                       <div style={s.flex(5)}>
+                        <Btn variant="ghost" size="xs" onClick={()=>setShowStaffQR(st)}>QR</Btn>
                         <Btn variant="ghost" size="xs" onClick={()=>setShowView(st)}>View</Btn>
                         <Btn variant="ghost" size="xs" onClick={()=>openEdit(st)}>Edit</Btn>
                         <Btn variant="danger" size="xs" onClick={()=>{setStaff(p=>p.filter((_,j)=>j!==i));supabase.from('staff').delete().eq('id',st.id).then(()=>{});toast(`${st.name} removed`);}}>✕</Btn>
@@ -2607,6 +2609,22 @@ function PageStaff({ toast }) {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Staff QR Code Modal */}
+      <Modal open={!!showStaffQR} onClose={()=>setShowStaffQR(null)} title={`QR Code — ${showStaffQR?.name}`} width={380}>
+        {showStaffQR&&<div style={{textAlign:'center'}}>
+          <div style={{background:G.bg3,border:`1px solid ${G.border2}`,borderRadius:12,padding:'10px 14px',marginBottom:16,...s.flex(10)}}>
+            <Mav init={showStaffQR.init} size={38}/>
+            <div style={{textAlign:'left'}}><div style={{fontSize:14,fontWeight:700,color:G.navy}}>{showStaffQR.name}</div><div style={{...s.mono,fontSize:12,color:G.accent}}>{showStaffQR.id} · {showStaffQR.role}</div></div>
+          </div>
+          <div style={{background:'#ffffff',borderRadius:12,padding:24,display:'inline-block',border:`1px solid ${G.border}`,marginBottom:16}}>
+            <QRCodeCanvas value={showStaffQR.id} size={200} fgColor="#0f172a" bgColor="#ffffff" level="M" style={{display:'block'}}/>
+          </div>
+          <div style={{...s.mono,fontSize:13,color:G.text2,marginBottom:12}}>Staff ID: <strong style={{color:G.accent}}>{showStaffQR.id}</strong></div>
+          <div style={{fontSize:11,color:G.text3,marginBottom:16}}>Show this QR at reception scanner for staff check-in</div>
+          <Btn variant="ghost" onClick={()=>setShowStaffQR(null)}>Close</Btn>
+        </div>}
       </Modal>
 
       <Modal open={!!showPayModal} onClose={()=>setShowPayModal(null)} title={`Pay Salary — ${showPayModal?.name}`} width={420}>

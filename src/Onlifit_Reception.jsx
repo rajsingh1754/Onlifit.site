@@ -82,15 +82,26 @@ export default function ReceptionScanner() {
       const { data: members, error: memErr } = await supabase.rpc('get_gym_members', { p_gym_id: acct.gym_id });
       if (memErr) console.warn("[Reception] get_gym_members RPC failed, trying direct:", memErr.message);
       const memberList = memErr ? (await supabase.from('members').select('*').eq('gym_id', acct.gym_id)).data : members;
+      const db = {};
       if (memberList && memberList.length > 0) {
-        const db = {};
         memberList.forEach(r => {
           const expDate = r.expiry_date ? new Date(r.expiry_date) : null;
           const daysLeft = expDate ? Math.max(0, Math.ceil((expDate - Date.now()) / 864e5)) : 0;
-          db[r.id] = { id:r.id, name:r.name, init:r.initials||r.name.split(' ').map(w=>w[0]).join(''), plan:r.plan, expiry:r.expiry_date, status:r.status, phone:r.phone, trainer:r.trainer, visits:r.visits||0, daysLeft };
+          db[r.id] = { id:r.id, name:r.name, init:r.initials||r.name.split(' ').map(w=>w[0]).join(''), plan:r.plan, expiry:r.expiry_date, status:r.status, phone:r.phone, trainer:r.trainer, visits:r.visits||0, daysLeft, type:'member' };
         });
-        setDB(db);
       }
+
+      // Load staff for staff QR check-in
+      try {
+        const { data: staffList } = await supabase.from('staff').select('*').eq('gym_id', acct.gym_id);
+        if (staffList && staffList.length > 0) {
+          staffList.forEach(r => {
+            db[r.id] = { id:r.id, name:r.name, init:r.initials||r.name.split(' ').map(w=>w[0]).join(''), role:r.role, phone:r.phone, shift:r.shift||'Full Day', status:'Active', type:'staff' };
+          });
+        }
+      } catch(se) { console.warn("[Reception] Staff load skipped:", se); }
+
+      setDB(db);
       // Load today's attendance (non-critical, don't block on error)
       try {
         const { data: att } = await supabase.from('attendance').select('*').eq('gym_id', acct.gym_id).eq('date', 'Today').order('created_at', { ascending: false });
@@ -148,21 +159,29 @@ export default function ReceptionScanner() {
     return () => clearInterval(t);
   }, []);
 
-  // Auto-refresh members every 30s so newly added members are available for scanning
+  // Auto-refresh members + staff every 30s so newly added entries are available for scanning
   useEffect(() => {
     if (authState !== "ready" || !gymId) return;
     const t = setInterval(async () => {
       try {
+        const db = {};
         const { data: members } = await supabase.rpc('get_gym_members', { p_gym_id: gymId });
         if (members && members.length > 0) {
-          const db = {};
           members.forEach(r => {
             const expDate = r.expiry_date ? new Date(r.expiry_date) : null;
             const daysLeft = expDate ? Math.max(0, Math.ceil((expDate - Date.now()) / 864e5)) : 0;
-            db[r.id] = { id:r.id, name:r.name, init:r.initials||r.name.split(' ').map(w=>w[0]).join(''), plan:r.plan, expiry:r.expiry_date, status:r.status, phone:r.phone, trainer:r.trainer, visits:r.visits||0, daysLeft };
+            db[r.id] = { id:r.id, name:r.name, init:r.initials||r.name.split(' ').map(w=>w[0]).join(''), plan:r.plan, expiry:r.expiry_date, status:r.status, phone:r.phone, trainer:r.trainer, visits:r.visits||0, daysLeft, type:'member' };
           });
-          setDB(db);
         }
+        try {
+          const { data: staffList } = await supabase.from('staff').select('*').eq('gym_id', gymId);
+          if (staffList && staffList.length > 0) {
+            staffList.forEach(r => {
+              db[r.id] = { id:r.id, name:r.name, init:r.initials||r.name.split(' ').map(w=>w[0]).join(''), role:r.role, phone:r.phone, shift:r.shift||'Full Day', status:'Active', type:'staff' };
+            });
+          }
+        } catch(se) { /* silent */ }
+        setDB(db);
       } catch(e) { /* silent refresh */ }
     }, 30000);
     return () => clearInterval(t);
@@ -287,6 +306,29 @@ export default function ReceptionScanner() {
         speak("Member not found. Please contact reception.");
         return;
       }
+
+      // Staff check-in
+      if (member.type === 'staff') {
+        const entry = { ...member, time: nowTime(), result: "allowed" };
+        setLog(prev => [entry, ...prev]);
+        setResult({ type:"staff", member });
+
+        if (gymId) {
+          try {
+            const attId = `satt-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+            await supabase.from('staff_attendance').insert({
+              id: attId, gym_id: gymId, staff_id: member.id,
+              staff_name: member.name, date: new Date().toISOString().slice(0,10),
+              status: 'Present', check_in: nowTime(), shift: member.shift||'Full Day'
+            });
+          } catch(e) { console.error("[Reception] Staff attendance write error:", e); }
+        }
+
+        speak(`Welcome ${member.name}. ${member.role || 'Staff'} checked in.`);
+        return;
+      }
+
+      // Member check-in
 
       const entry = { ...member, time: nowTime(), result: member.status==="Active" ? "allowed" : "denied" };
       setLog(prev => [entry, ...prev]);
@@ -583,7 +625,21 @@ export default function ReceptionScanner() {
                     <div style={{ fontSize:18, fontWeight:800, color:"#fff", marginBottom:8 }}>Unknown QR</div>
                     <div style={{ fontSize:12, color:"rgba(255,255,255,.4)", lineHeight:1.7, marginBottom:16 }}>
                       Scanned: <span style={{ fontFamily:"'JetBrains Mono',monospace", color:"rgba(255,255,255,.6)" }}>{result.raw}</span><br/>
-                      No member found. Contact reception.
+                      No member or staff found. Contact reception.
+                    </div>
+                  </div>
+                )}
+
+                {/* STAFF CHECK-IN ✅ */}
+                {result?.type === "staff" && (
+                  <div className="pop" style={{ width:"100%", textAlign:"center" }}>
+                    <div style={{ width:90,height:90,borderRadius:"50%",background:"rgba(59,130,246,.2)",border:"3px solid #3b82f6",display:"flex",alignItems:"center",justifyContent:"center",margin:"0 auto 20px",fontSize:44 }}>🧑‍💼</div>
+                    <div style={{ fontSize:11, fontWeight:700, color:"rgba(59,130,246,.8)", textTransform:"uppercase", letterSpacing:2, marginBottom:8 }}>STAFF CHECK-IN</div>
+                    <div style={{ fontSize:28, fontWeight:900, color:"#fff", marginBottom:4 }}>{result.member.name}</div>
+                    <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:12, color:"rgba(255,255,255,.3)", marginBottom:20 }}>{result.member.id}</div>
+                    <div style={{ background:"rgba(59,130,246,.15)", border:"1px solid rgba(59,130,246,.4)", borderRadius:12, padding:"16px" }}>
+                      <div style={{ fontSize:15, fontWeight:800, color:"#60a5fa" }}>{result.member.role || 'Staff'}</div>
+                      <div style={{ fontSize:12, color:"rgba(255,255,255,.5)", marginTop:4 }}>{result.member.shift || 'Full Day'}</div>
                     </div>
                   </div>
                 )}
@@ -592,10 +648,10 @@ export default function ReceptionScanner() {
               {/* Demo test buttons */}
               <div style={{ borderTop:"1px solid rgba(255,255,255,.07)", padding:"14px 16px", background:"rgba(0,0,0,.4)" }}>
                 <div style={{ fontSize:10, color:"rgba(255,255,255,.2)", fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:10 }}>
-                  🎮 Demo -- Simulate Scan
+                  🎮 Quick Scan — Members
                 </div>
                 <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
-                  {Object.values(DB).map(m => (
+                  {Object.values(DB).filter(m=>m.type!=='staff').map(m => (
                     <button key={m.id} onClick={() => testScan(m.id)}
                       style={{
                         padding:"6px 11px", borderRadius:8, border:"none", cursor:"pointer",
@@ -604,10 +660,27 @@ export default function ReceptionScanner() {
                         color: m.status==="Active"?"#4ade80":m.status==="Expired"?"#f87171":"#fbbf24",
                         transition:".15s"
                       }}>
-                      {m.init} -- {m.status}
+                      {m.init} — {m.status}
                     </button>
                   ))}
                 </div>
+                {Object.values(DB).some(m=>m.type==='staff') && <>
+                  <div style={{ fontSize:10, color:"rgba(255,255,255,.2)", fontWeight:700, textTransform:"uppercase", letterSpacing:1, marginBottom:10, marginTop:12 }}>
+                    🧑‍💼 Quick Scan — Staff
+                  </div>
+                  <div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>
+                    {Object.values(DB).filter(m=>m.type==='staff').map(m => (
+                      <button key={m.id} onClick={() => testScan(m.id)}
+                        style={{
+                          padding:"6px 11px", borderRadius:8, border:"none", cursor:"pointer",
+                          fontFamily:"'JetBrains Mono',monospace", fontSize:11, fontWeight:600,
+                          background:"rgba(59,130,246,.15)", color:"#60a5fa", transition:".15s"
+                        }}>
+                        {m.init} — {m.role||'Staff'}
+                      </button>
+                    ))}
+                  </div>
+                </>}
               </div>
             </div>
           </div>

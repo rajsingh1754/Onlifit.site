@@ -1249,16 +1249,13 @@ function Panel({ onLogout }) {
         await supabase.auth.signInWithPassword({ email: ADMIN_EMAILS[0], password: storedPw });
       }
 
-      // 3. Insert gym_accounts record (now as admin)
-      const { error: gymErr } = await supabase.from('gym_accounts').insert({
-        gym_id: newGym.id, user_id: authUserId, email: creds.email,
-        name: newGym.owner, gym_name: newGym.name,
-        city: newGym.city, role: newGym.role || 'gym_owner', is_new: true,
+      // 3. Insert gym_accounts + gym_profiles via SECURITY DEFINER function (bypasses RLS)
+      const { error: rpcErr } = await supabase.rpc('onboard_gym', {
+        p_gym_id: newGym.id, p_user_id: authUserId, p_email: creds.email,
+        p_name: newGym.owner, p_gym_name: newGym.name, p_city: newGym.city,
+        p_role: newGym.role || 'gym_owner',
       });
-      if (gymErr) { console.error("[OwnerPanel] gym_accounts insert error:", gymErr); toast$(`DB error: ${gymErr.message}`, "error"); return; }
-
-      // 4. Insert gym_profiles record
-      await supabase.from('gym_profiles').insert({ gym_id: newGym.id, gym_name: newGym.name, city: newGym.city });
+      if (rpcErr) { console.error("[OwnerPanel] onboard_gym RPC error:", rpcErr); toast$(`DB error: ${rpcErr.message}`, "error"); return; }
     } catch(e) { console.error("[OwnerPanel] Add gym error:", e); toast$("Failed to onboard gym. Try again.", "error"); return; }
     setGyms(gs=>[...gs,newGym]);
     setAddOpen(false);

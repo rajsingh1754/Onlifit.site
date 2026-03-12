@@ -1230,7 +1230,7 @@ function Panel({ onLogout }) {
       // 2. Insert gym_accounts record
       const { error: gymErr } = await supabase.from('gym_accounts').insert({
         gym_id: newGym.id, user_id: authUserId, email: creds.email,
-        password: creds.tempPw, name: newGym.owner, gym_name: newGym.name,
+        name: newGym.owner, gym_name: newGym.name,
         city: newGym.city, role: newGym.role || 'gym_owner', is_new: true,
       });
       if (gymErr) { console.error("[OwnerPanel] gym_accounts insert error:", gymErr); toast$(`DB error: ${gymErr.message}`, "error"); return; }

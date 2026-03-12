@@ -81,7 +81,7 @@ export default function ReceptionScanner() {
       // Use RPC to fetch members (bypasses RLS)
       const { data: members, error: memErr } = await supabase.rpc('get_gym_members', { p_gym_id: acct.gym_id });
       if (memErr) console.warn("[Reception] get_gym_members RPC failed, trying direct:", memErr.message);
-      const memberList = memErr ? (await supabase.from('members').select('*').eq('gym_id', acct.gym_id)).data : members;
+      const memberList = memErr ? [] : members;
       const db = {};
       if (memberList && memberList.length > 0) {
         memberList.forEach(r => {
@@ -93,7 +93,7 @@ export default function ReceptionScanner() {
 
       // Load staff for staff QR check-in
       try {
-        const { data: staffList } = await supabase.from('staff').select('*').eq('gym_id', acct.gym_id);
+        const { data: staffList } = await supabase.rpc('get_gym_staff', { p_gym_id: acct.gym_id });
         if (staffList && staffList.length > 0) {
           staffList.forEach(r => {
             db[r.id] = { id:r.id, name:r.name, init:r.initials||r.name.split(' ').map(w=>w[0]).join(''), role:r.role, phone:r.phone, shift:r.shift||'Full Day', status:'Active', type:'staff' };
@@ -104,7 +104,7 @@ export default function ReceptionScanner() {
       setDB(db);
       // Load today's attendance (non-critical, don't block on error)
       try {
-        const { data: att } = await supabase.from('attendance').select('*').eq('gym_id', acct.gym_id).eq('date', 'Today').order('created_at', { ascending: false });
+        const { data: att } = await supabase.rpc('get_gym_attendance', { p_gym_id: acct.gym_id });
         if (att && att.length > 0) {
           const logEntries = att.map(a => ({
             id: a.member_id, name: a.member_name, init: a.initials||'', plan: '', time: a.check_in,
@@ -174,7 +174,7 @@ export default function ReceptionScanner() {
           });
         }
         try {
-          const { data: staffList } = await supabase.from('staff').select('*').eq('gym_id', gymId);
+          const { data: staffList } = await supabase.rpc('get_gym_staff', { p_gym_id: gymId });
           if (staffList && staffList.length > 0) {
             staffList.forEach(r => {
               db[r.id] = { id:r.id, name:r.name, init:r.initials||r.name.split(' ').map(w=>w[0]).join(''), role:r.role, phone:r.phone, shift:r.shift||'Full Day', status:'Active', type:'staff' };
@@ -315,11 +315,10 @@ export default function ReceptionScanner() {
 
         if (gymId) {
           try {
-            const attId = `satt-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
-            await supabase.from('staff_attendance').insert({
-              id: attId, gym_id: gymId, staff_id: member.id,
-              staff_name: member.name, date: new Date().toISOString().slice(0,10),
-              status: 'Present', check_in: nowTime(), shift: member.shift||'Full Day'
+            await supabase.rpc('upsert_staff_attendance', {
+              p_gym_id: gymId, p_staff_id: member.id,
+              p_staff_name: member.name, p_date: new Date().toISOString().slice(0,10),
+              p_status: 'Present', p_check_in: nowTime(), p_shift: member.shift||'Full Day'
             });
           } catch(e) { console.error("[Reception] Staff attendance write error:", e); }
         }
@@ -339,14 +338,14 @@ export default function ReceptionScanner() {
       if (gymId && member.status === "Active") {
         try {
           const attId = `att-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
-          await supabase.from('attendance').insert({
-            id: attId, gym_id: gymId, member_id: member.id,
-            member_name: member.name, initials: member.init,
-            check_in: nowTime(), date: 'Today', trainer: member.trainer,
-            method: 'QR', status: 'inside'
+          await supabase.rpc('insert_attendance', {
+            p_id: attId, p_gym_id: gymId, p_member_id: member.id,
+            p_member_name: member.name, p_initials: member.init,
+            p_check_in: nowTime(), p_date: 'Today', p_trainer: member.trainer||'',
+            p_method: 'QR', p_status: 'inside'
           });
           // Increment visit count
-          supabase.from('members').update({ visits: (member.visits||0)+1 }).eq('id', member.id).then(()=>{});
+          supabase.rpc('update_member_visits', { p_id: member.id, p_visits: (member.visits||0)+1 }).then(()=>{});
         } catch(e) { console.error("[Reception] Attendance write error:", e); }
       }
 

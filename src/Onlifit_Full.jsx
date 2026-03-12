@@ -240,12 +240,12 @@ function generateNotifications(members, attendance, payments) {
 async function supaLoadGymData(gymId) {
   const [mRes, aRes, sRes, tRes, pRes, payRes, profRes, enqRes] = await Promise.all([
     supabase.rpc('get_gym_members', { p_gym_id: gymId }),
-    supabase.from('attendance').select('*').eq('gym_id', gymId).order('created_at', { ascending: false }),
-    supabase.from('staff').select('*').eq('gym_id', gymId),
-    supabase.from('trainers').select('*').eq('gym_id', gymId),
-    supabase.from('plans').select('*').eq('gym_id', gymId),
-    supabase.from('payments').select('*').eq('gym_id', gymId).order('created_at', { ascending: false }),
-    supabase.from('gym_profiles').select('*').eq('gym_id', gymId).single(),
+    supabase.rpc('get_gym_attendance', { p_gym_id: gymId }),
+    supabase.rpc('get_gym_staff', { p_gym_id: gymId }),
+    supabase.rpc('get_gym_trainers', { p_gym_id: gymId }),
+    supabase.rpc('get_gym_plans', { p_gym_id: gymId }),
+    supabase.rpc('get_gym_payments', { p_gym_id: gymId }),
+    supabase.rpc('get_gym_profile', { p_gym_id: gymId }),
     supabase.rpc('get_gym_enquiries', { p_gym_id: gymId }),
   ]);
   const mapMember = r => { const status = checkExpiryStatus(r.expiry_date, r.status); return { name:r.name, init:r.initials, id:r.id, phone:r.phone, email:r.email, plan:r.plan, start:r.start_date, expiry:r.expiry_date, status, trainer:r.trainer, visits:r.visits, dob:r.dob }; };
@@ -267,55 +267,8 @@ async function supaLoadGymData(gymId) {
   };
 }
 
-// ─── SEED DATA ────────────────────────────────────────────────────────────────
-const SEED_MEMBERS = [
-  {name:'Arjun Mehta',  init:'AM',id:'IQ-KRM-0001',phone:'+91 98765 43210',email:'arjun@gmail.com',  plan:'Yearly',   start:'Jan 1',  expiry:'Dec 31',   status:'Active',  trainer:'Vikram Singh',visits:87,dob:'1992-04-12'},
-  {name:'Priya Sharma', init:'PS',id:'IQ-KRM-0002',phone:'+91 87654 32109',email:'priya@gmail.com',  plan:'Quarterly',start:'Feb 1',  expiry:'Apr 30',   status:'Active',  trainer:'Pooja Reddy', visits:42,dob:'1995-09-20'},
-  {name:'Karan Patel',  init:'KP',id:'IQ-KRM-0003',phone:'+91 76543 21098',email:'karan@gmail.com',  plan:'Monthly',  start:'Feb 15', expiry:'Mar 14',   status:'Expired', trainer:'Aryan Nair',  visits:18,dob:'1998-01-05'},
-  {name:'Sneha Rao',    init:'SR',id:'IQ-KRM-0004',phone:'+91 65432 10987',email:'sneha@gmail.com',  plan:'Yearly',   start:'Jan 10', expiry:'Jan 9 26', status:'Active',  trainer:'Vikram Singh',visits:63,dob:'1993-11-30'},
-  {name:'Mohit Jain',   init:'MJ',id:'IQ-KRM-0005',phone:'+91 54321 09876',email:'mohit@gmail.com',  plan:'Monthly',  start:'Mar 1',  expiry:'Mar 31',   status:'Active',  trainer:'Pooja Reddy', visits:9, dob:'2000-07-14'},
-  {name:'Divya Nair',   init:'DN',id:'IQ-KRM-0006',phone:'+91 43210 98765',email:'divya@gmail.com',  plan:'Quarterly',start:'Dec 1',  expiry:'Feb 28',   status:'Expired', trainer:'Aryan Nair',  visits:34,dob:'1996-03-22'},
-  {name:'Rohan Gupta',  init:'RG',id:'IQ-KRM-0007',phone:'+91 32109 87654',email:'rohan@gmail.com',  plan:'Yearly',   start:'Mar 1',  expiry:'Feb 28 26',status:'Frozen',  trainer:'Vikram Singh',visits:156,dob:'1990-08-18'},
-];
-
-const SEED_ATTENDANCE = [
-  {id:'att001',memberId:'IQ-KRM-0001',memberName:'Arjun Mehta',  init:'AM',checkIn:'6:02 AM',date:'Today',  trainer:'Vikram Singh',method:'QR',status:'inside'},
-  {id:'att002',memberId:'IQ-KRM-0002',memberName:'Priya Sharma', init:'PS',checkIn:'6:15 AM',date:'Today',  trainer:'Pooja Reddy', method:'QR',status:'inside'},
-  {id:'att003',memberId:'IQ-KRM-0004',memberName:'Sneha Rao',    init:'SR',checkIn:'7:00 AM',date:'Today',  trainer:'Vikram Singh',method:'QR',status:'inside'},
-  {id:'att004',memberId:'IQ-KRM-0005',memberName:'Mohit Jain',   init:'MJ',checkIn:'7:30 AM',date:'Today',  trainer:'Pooja Reddy', method:'Manual',status:'left'},
-  {id:'att005',memberId:'IQ-KRM-0007',memberName:'Rohan Gupta',  init:'RG',checkIn:'8:00 AM',date:'Today',  trainer:'Aryan Nair',  method:'QR',status:'left'},
-  {id:'att006',memberId:'IQ-KRM-0001',memberName:'Arjun Mehta',  init:'AM',checkIn:'6:10 AM',date:'Mar 9',  trainer:'Vikram Singh',method:'QR',status:'left'},
-  {id:'att007',memberId:'IQ-KRM-0002',memberName:'Priya Sharma', init:'PS',checkIn:'6:45 AM',date:'Mar 9',  trainer:'Pooja Reddy', method:'QR',status:'left'},
-  {id:'att008',memberId:'IQ-KRM-0004',memberName:'Sneha Rao',    init:'SR',checkIn:'7:15 AM',date:'Mar 9',  trainer:'Vikram Singh',method:'QR',status:'left'},
-  {id:'att009',memberId:'IQ-KRM-0001',memberName:'Arjun Mehta',  init:'AM',checkIn:'6:05 AM',date:'Mar 8',  trainer:'Vikram Singh',method:'QR',status:'left'},
-  {id:'att010',memberId:'IQ-KRM-0007',memberName:'Rohan Gupta',  init:'RG',checkIn:'7:00 AM',date:'Mar 8',  trainer:'Aryan Nair',  method:'QR',status:'left'},
-];
-
-const SEED_PLANS   = [{name:'Monthly',days:30,price:1500,pt:'None'},{name:'Quarterly',days:90,price:4000,pt:'None'},{name:'Yearly',days:365,price:14000,pt:'4 Sessions'},{name:'Student Pack',days:30,price:999,pt:'None'}];
-const SEED_STAFF = [
-  {name:'Vikram Singh',init:'VS',id:'ST-001',role:'Head Trainer',  branch:'Koramangala',members:24,present:true, salary:45000, phone:'+91 98100 11001',email:'vikram@onlifit.com',joined:'Jan 2023',qr:'QR-ST-001'},
-  {name:'Pooja Reddy', init:'PR',id:'ST-002',role:'PT Trainer',    branch:'Koramangala',members:18,present:true, salary:32000, phone:'+91 98100 11002',email:'pooja@onlifit.com', joined:'Mar 2023',qr:'QR-ST-002'},
-  {name:'Aryan Nair',  init:'AN',id:'ST-003',role:'Trainer',       branch:'Koramangala',members:20,present:true, salary:30000, phone:'+91 98100 11003',email:'aryan@onlifit.com', joined:'Jun 2023',qr:'QR-ST-003'},
-];
-const SEED_TRAINERS = [
-  {name:'Vikram Singh', init:'VS',id:'TR-001',specialization:'Strength & Conditioning',experience:'8 years',members:['IQ-KRM-0001','IQ-KRM-0004'],sessions:28,rating:4.9,commission:500,revenue:14000,certifications:'NSCA-CPT, ACSM',qr:'QR-TR-001'},
-  {name:'Pooja Reddy',  init:'PR',id:'TR-002',specialization:'Weight Loss & Nutrition', experience:'5 years',members:['IQ-KRM-0002','IQ-KRM-0005'],sessions:20,rating:4.8,commission:400,revenue:8000, certifications:'ACE-CPT, Precision Nutrition',qr:'QR-TR-002'},
-  {name:'Aryan Nair',   init:'AN',id:'TR-003',specialization:'Functional & Crossfit',   experience:'4 years',members:['IQ-KRM-0007'],sessions:14,rating:4.7,commission:350,revenue:4900, certifications:'CrossFit L2',qr:'QR-TR-003'},
-];
-const SEED_PAYMENTS = [
-  {member:'Arjun Mehta',inv:'INV-0347',plan:'Yearly',   amount:'₹14,000',mode:'UPI', date:'Mar 9',status:'Paid'},
-  {member:'Sneha Rao',  inv:'INV-0346',plan:'Yearly',   amount:'₹14,000',mode:'Card',date:'Mar 8',status:'Paid'},
-  {member:'Mohit Jain', inv:'INV-0345',plan:'Monthly',  amount:'₹1,500', mode:'Cash',date:'Mar 8',status:'Paid'},
-  {member:'Aisha Khan', inv:'INV-0344',plan:'Quarterly',amount:'₹4,000', mode:'UPI', date:'Mar 7',status:'Pending'},
-];
-const SEED_ENQUIRIES = [
-  {id:'ENQ-001',name:'Amit Verma',phone:'+91 99887 76655',email:'amit.v@gmail.com',source:'Walk-in',interest:'Monthly',status:'New',assignedTo:'Vikram Singh',notes:'Visited gym, interested in morning batch',followUpDate:'',trialDate:'',convertedMemberId:'',createdAt:new Date().toISOString()},
-  {id:'ENQ-002',name:'Neha Kapoor',phone:'+91 88776 65544',email:'neha.k@gmail.com',source:'Instagram',interest:'Quarterly',status:'Contacted',assignedTo:'Pooja Reddy',notes:'DM on Instagram, sent pricing',followUpDate:'2026-03-13',trialDate:'',convertedMemberId:'',createdAt:new Date().toISOString()},
-  {id:'ENQ-003',name:'Rahul Desai',phone:'+91 77665 54433',email:'rahul.d@gmail.com',source:'Google',interest:'Yearly',status:'Follow-up',assignedTo:'Aryan Nair',notes:'Found us on Google Maps, wants PT',followUpDate:'2026-03-10',trialDate:'',convertedMemberId:'',createdAt:new Date().toISOString()},
-  {id:'ENQ-004',name:'Simran Kaur',phone:'+91 66554 43322',email:'simran.k@gmail.com',source:'Referral',interest:'Monthly',status:'Trial',assignedTo:'Vikram Singh',notes:'Referred by Arjun Mehta',followUpDate:'',trialDate:'2026-03-12',convertedMemberId:'',createdAt:new Date().toISOString()},
-  {id:'ENQ-005',name:'Varun Reddy',phone:'+91 55443 32211',email:'varun.r@gmail.com',source:'Phone',interest:'Quarterly',status:'Converted',assignedTo:'Pooja Reddy',notes:'Joined as member',followUpDate:'',trialDate:'',convertedMemberId:'IQ-KRM-0008',createdAt:new Date().toISOString()},
-  {id:'ENQ-006',name:'Megha Shah',phone:'+91 44332 21100',email:'megha.s@gmail.com',source:'Website',interest:'Monthly',status:'Lost',assignedTo:'Aryan Nair',notes:'Too expensive, joined competitor',followUpDate:'',trialDate:'',convertedMemberId:'',createdAt:new Date().toISOString()},
-];
+// ─── DEFAULT PLANS & COUPONS ──────────────────────────────────────────────────
+const DEFAULT_PLANS = [{name:'Monthly',days:30,price:1500,pt:'None'},{name:'Quarterly',days:90,price:4000,pt:'None'},{name:'Yearly',days:365,price:14000,pt:'4 Sessions'},{name:'Student Pack',days:30,price:999,pt:'None'}];
 const VALID_COUPONS = {IRON10:{type:'pct',val:10},NEWJOIN20:{type:'pct',val:20},REFER500:{type:'flat',val:500},SUMMER15:{type:'pct',val:15}};
 
 // ─── COMPONENTS ───────────────────────────────────────────────────────────────
@@ -805,7 +758,7 @@ function PageDashboard({ toast }) {
   // Load payments for dashboard stats
   useEffect(()=>{
     if(!gymUser) return;
-    supabase.from('payments').select('*').eq('gym_id',gymUser.gym_id).order('created_at',{ascending:false}).then(({data})=>{
+    supabase.rpc('get_gym_payments', { p_gym_id: gymUser.gym_id }).then(({data})=>{
       if(data) setPayments(data);
     });
   },[gymUser]);
@@ -1820,7 +1773,7 @@ function PageRevenue({ toast }) {
 
   useEffect(()=>{
     if(!gymUser) return;
-    supabase.from('payments').select('*').eq('gym_id',gymUser.gym_id).order('created_at',{ascending:false}).then(({data})=>{
+    supabase.rpc('get_gym_payments', { p_gym_id: gymUser.gym_id }).then(({data})=>{
       if(data) setPayments(data);
     });
   },[gymUser]);
@@ -2022,7 +1975,7 @@ function PageFees({ toast }) {
   // Load payment history
   useEffect(()=>{
     if(!gymUser) return;
-    supabase.from('payments').select('*').eq('gym_id',gymUser.gym_id).order('created_at',{ascending:false}).limit(20).then(({data})=>{
+    supabase.rpc('get_gym_payments', { p_gym_id: gymUser.gym_id }).then(({data})=>{
       if(data) setPayments(data);
     });
   },[gymUser]);
@@ -2097,7 +2050,10 @@ function PageFees({ toast }) {
       gym_id: gymUser.gym_id, member_id: selectedMember?.id||null, member_name: selectedMember?.name||'Walk-in',
       invoice: invNo, plan: planName, amount: total, mode, date: today, status: 'Paid', txn_id: txnId||null,
     };
-    const { error } = await supabase.from('payments').insert(paymentData);
+    const { error } = await supabase.rpc('insert_payment', {
+      p_gym_id: gymUser.gym_id, p_member_id: selectedMember?.id||'', p_member_name: selectedMember?.name||'Walk-in',
+      p_invoice: invNo, p_plan: planName, p_amount: String(total), p_mode: mode, p_date: today, p_status: 'Paid', p_txn_id: txnId||'',
+    });
     if(error) toast('⚠️ Payment save failed locally');
     else { setPayments(prev=>[paymentData,...prev]); toast(`✅ ₹${total.toLocaleString()} received from ${selectedMember?.name||'Walk-in'}`); }
     generatePDF({memberName:selectedMember?.name, memberId:selectedMember?.id, mode});
@@ -2324,8 +2280,8 @@ function PageStaff({ toast }) {
   useEffect(()=>{
     if(!gymUser) return;
     Promise.all([
-      supabase.from('staff_attendance').select('*').eq('gym_id',gymUser.gym_id).order('created_at',{ascending:false}),
-      supabase.from('staff_salary').select('*').eq('gym_id',gymUser.gym_id).order('created_at',{ascending:false}),
+      supabase.rpc('get_staff_attendance', { p_gym_id: gymUser.gym_id }),
+      supabase.rpc('get_staff_salary', { p_gym_id: gymUser.gym_id }),
     ]).then(([attRes, salRes])=>{
       if(attRes.data) setStaffAtt(attRes.data);
       if(salRes.data) setSalaryRecords(salRes.data);
@@ -2352,11 +2308,11 @@ function PageStaff({ toast }) {
     setStaff(p=>[...p,newSt]);
     setShowAdd(false); setForm(blank);
     toast(`${form.name} added -- ID: ${id}, QR assigned ✓`);
-    supabase.from('staff').insert({
-      id, gym_id: gymUser.gym_id, name: form.name.trim(), initials: init, role: form.role,
-      branch: form.branch||'', members_count: 0, present: true, salary: salaryNum,
-      phone: form.phone||'', email: form.email||'', joined: form.joined||'', qr: `QR-${id}`,
-      shift: form.shift||'Full Day',
+    supabase.rpc('save_staff_member', {
+      p_id: id, p_gym_id: gymUser.gym_id, p_name: form.name.trim(), p_initials: init, p_role: form.role,
+      p_branch: form.branch||'', p_members_count: 0, p_present: true, p_salary: salaryNum,
+      p_phone: form.phone||'', p_email: form.email||'', p_joined: form.joined||'', p_qr: `QR-${id}`,
+      p_shift: form.shift||'Full Day',
     }).then(()=>{});
   };
 
@@ -2365,11 +2321,11 @@ function PageStaff({ toast }) {
     setStaff(p=>p.map(st=>st.id===showEdit.id?{...showEdit,...form,salary:salaryNum,init:showEdit.init}:st));
     setShowEdit(null); setForm(blank);
     toast('Staff record updated ✓');
-    supabase.from('staff').update({
-      name: form.name, role: form.role, branch: form.branch, salary: salaryNum,
-      phone: form.phone||'', email: form.email||'', joined: form.joined||'',
-      shift: form.shift||'Full Day',
-    }).eq('id', showEdit.id).then(()=>{});
+    supabase.rpc('update_staff_member', {
+      p_id: showEdit.id, p_name: form.name, p_role: form.role, p_branch: form.branch, p_salary: salaryNum,
+      p_phone: form.phone||'', p_email: form.email||'', p_joined: form.joined||'',
+      p_shift: form.shift||'Full Day',
+    }).then(()=>{});
   };
 
   const openEdit = (st) => { setShowEdit(st); setForm({name:st.name,phone:st.phone||'',email:st.email||'',role:st.role,branch:st.branch,salary:String(st.salary),joined:st.joined||'',shift:st.shift||'Full Day'}); };
@@ -2381,15 +2337,19 @@ function PageStaff({ toast }) {
     const existing = getTodayAtt(staffId);
     if(existing) {
       setStaffAtt(prev=>prev.map(a=>a.id===existing.id?{...a,status}:a));
-      await supabase.from('staff_attendance').update({status}).eq('id',existing.id);
+      await supabase.rpc('upsert_staff_attendance', { p_id: existing.id, p_status: status });
     } else {
       const timeStr = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'});
       const rec = { gym_id:gymUser.gym_id, staff_id:staffId, staff_name:stf?.name||'', date:todayStr, status, check_in:status==='Present'||status==='Half Day'?timeStr:'', shift:stf?.shift||'Full Day' };
-      const {data} = await supabase.from('staff_attendance').insert(rec).select().single();
+      const {data} = await supabase.rpc('upsert_staff_attendance', {
+        p_gym_id: gymUser.gym_id, p_staff_id: staffId, p_staff_name: stf?.name||'',
+        p_date: todayStr, p_status: status, p_check_in: status==='Present'||status==='Half Day'?timeStr:'',
+        p_shift: stf?.shift||'Full Day',
+      });
       if(data) setStaffAtt(prev=>[data,...prev]);
     }
     setStaff(p=>p.map(st=>st.id===staffId?{...st,present:status==='Present'||status==='Half Day'}:st));
-    supabase.from('staff').update({present:status==='Present'||status==='Half Day'}).eq('id',staffId).then(()=>{});
+    supabase.rpc('update_staff_present', { p_id: staffId, p_present: status==='Present'||status==='Half Day' }).then(()=>{});
     toast(`${stf?.name} marked ${status} ✓`);
   };
 
@@ -2401,10 +2361,14 @@ function PageStaff({ toast }) {
     const existing = getMonthSalary(staffId, salMonth);
     if(existing) {
       setSalaryRecords(prev=>prev.map(r=>r.id===existing.id?{...r,status:'Paid',paid_date:todayStr,mode:payMode}:r));
-      await supabase.from('staff_salary').update({status:'Paid',paid_date:todayStr,mode:payMode}).eq('id',existing.id);
+      await supabase.rpc('upsert_staff_salary', { p_id: existing.id, p_status: 'Paid', p_paid_date: todayStr, p_mode: payMode });
     } else {
       const rec = { gym_id:gymUser.gym_id, staff_id:staffId, staff_name:stf.name, month:salMonth, amount:parseInt(stf.salary)||0, status:'Paid', paid_date:todayStr, mode:payMode };
-      const {data} = await supabase.from('staff_salary').insert(rec).select().single();
+      const {data} = await supabase.rpc('upsert_staff_salary', {
+        p_gym_id: gymUser.gym_id, p_staff_id: staffId, p_staff_name: stf.name,
+        p_month: salMonth, p_amount: parseInt(stf.salary)||0, p_status: 'Paid',
+        p_paid_date: todayStr, p_mode: payMode,
+      });
       if(data) setSalaryRecords(prev=>[data,...prev]);
     }
     toast(`₹${(parseInt(stf.salary)||0).toLocaleString('en-IN')} paid to ${stf.name} ✓`);
@@ -2495,7 +2459,7 @@ function PageStaff({ toast }) {
                         <Btn variant="ghost" size="xs" onClick={()=>setShowStaffQR(st)}>QR</Btn>
                         <Btn variant="ghost" size="xs" onClick={()=>setShowView(st)}>View</Btn>
                         <Btn variant="ghost" size="xs" onClick={()=>openEdit(st)}>Edit</Btn>
-                        <Btn variant="danger" size="xs" onClick={()=>{setStaff(p=>p.filter((_,j)=>j!==i));supabase.from('staff').delete().eq('id',st.id).then(()=>{});toast(`${st.name} removed`);}}>✕</Btn>
+                        <Btn variant="danger" size="xs" onClick={()=>{setStaff(p=>p.filter((_,j)=>j!==i));supabase.rpc('delete_staff_member',{p_id:st.id}).then(()=>{});toast(`${st.name} removed`);}}>✕</Btn>
                       </div>
                     </td>
                   </tr>
@@ -3320,7 +3284,7 @@ function PageSettings({ toast }) {
         <div style={s.card()}>
           <SH title="Membership Plans" right={<Btn variant="primary" size="sm" onClick={()=>toast('Create plan...')}>+ Create Plan</Btn>}/>
           <div style={s.col(8)}>
-            {SEED_PLANS.map(p=>(
+            {DEFAULT_PLANS.map(p=>(
               <div key={p.name} style={{background:G.bg2,border:`1.5px solid ${G.border}`,borderRadius:9,padding:'12px 15px',display:'flex',alignItems:'center',gap:12}}>
                 <div style={{width:10,height:10,borderRadius:'50%',background:G.accent,flexShrink:0}}/>
                 <div style={{flex:1}}>
@@ -3549,18 +3513,18 @@ export default function App() {
   const addAttendance = useCallback(async (record, checkoutId) => {
     if(checkoutId) {
       setAttendanceState(prev=>prev.map(a=>a.id===checkoutId?{...a,status:'left'}:a));
-      supabase.from('attendance').update({ status: 'left' }).eq('id', checkoutId).then(()=>{});
+      supabase.rpc('update_attendance_status', { p_id: checkoutId, p_status: 'left' }).then(()=>{});
     } else if(record) {
       setAttendanceState(prev=>[record,...prev]);
       setMembersState(prev=>prev.map(m=>m.id===record.memberId?{...m,visits:(m.visits||0)+1}:m));
       // Write to Supabase
       if (gymUser) {
-        supabase.from('attendance').insert({
-          id: record.id, gym_id: gymUser.gym_id, member_id: record.memberId,
-          member_name: record.memberName, initials: record.init, check_in: record.checkIn,
-          date: record.date, trainer: record.trainer, method: record.method, status: record.status,
+        supabase.rpc('insert_attendance', {
+          p_id: record.id, p_gym_id: gymUser.gym_id, p_member_id: record.memberId,
+          p_member_name: record.memberName, p_initials: record.init, p_check_in: record.checkIn,
+          p_date: record.date, p_trainer: record.trainer, p_method: record.method, p_status: record.status,
         }).then(()=>{});
-        supabase.from('members').update({ visits: (record.visits||0)+1 }).eq('id', record.memberId).then(()=>{});
+        supabase.rpc('update_member_visits', { p_id: record.memberId, p_visits: (record.visits||0)+1 }).then(()=>{});
       }
     }
   }, [gymUser]);
@@ -3596,7 +3560,7 @@ export default function App() {
   // Load payments for notifications
   useEffect(() => {
     if (!gymUser) return;
-    supabase.from('payments').select('*').eq('gym_id', gymUser.gym_id).then(({ data }) => {
+    supabase.rpc('get_gym_payments', { p_gym_id: gymUser.gym_id }).then(({ data }) => {
       if (data) setDashPayments(data);
     });
   }, [gymUser, dataLoaded]);

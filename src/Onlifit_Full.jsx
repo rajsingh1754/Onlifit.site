@@ -119,17 +119,17 @@ function useIsMobile() {
 // ─── SUPABASE HELPERS ─────────────────────────────────────────────────────────
 async function supaLogin(email, password) {
   try {
-    // Authenticate via Supabase Auth
     const { data: authData, error: authErr } = await supabase.auth.signInWithPassword({
       email: email.trim().toLowerCase(),
       password,
     });
+    console.log("[Login] Auth result:", { authErr, userEmail: authData?.user?.email, userId: authData?.user?.id });
     if (authErr || !authData?.user) return null;
-    // Fetch gym account via SECURITY DEFINER RPC (bypasses RLS)
     const { data, error } = await supabase.rpc('get_gym_account', { p_email: authData.user.email });
+    console.log("[Login] RPC result:", { data, error });
     if (error || !data) return null;
     return { gym_id: data.gym_id, user_id: data.user_id, email: data.email, name: data.name, gymName: data.gym_name, city: data.city, role: data.role, isNew: data.is_new };
-  } catch { return null; }
+  } catch(e) { console.error("[Login] Exception:", e); return null; }
 }
 
 async function supaSignUp(email, password) {

@@ -532,8 +532,7 @@ function OnboardingWizard({ gymUser, onComplete }) {
                     <Btn variant="ghost" size="sm" onClick={()=>{
                       const header = 'name,phone,email,plan,dob,status,trainer,emergency_contact,gym_id';
                       const rows = [
-                        `Arjun Mehta,+91 98765 43210,arjun@email.com,Monthly,1992-04-12,Active,Vikram Singh,Priya:9876543210,${gymUser.gym_id}`,
-                        `Priya Sharma,+91 87654 32109,priya@email.com,Quarterly,1995-09-20,Active,Pooja Reddy,,${gymUser.gym_id}`,
+                        `John Doe,+91 98765 43210,john@email.com,Monthly,1992-04-12,Active,${trainerNames[0]||''},Emergency Contact:9876543210,${gymUser.gym_id}`,
                         `[Your Member Name],[Phone],[Email],[Monthly/Quarterly/Yearly],[YYYY-MM-DD],[Active/Expired/Frozen],[Trainer Name],[Name:Phone],[${gymUser.gym_id}]`,
                       ];
                       const csv = [header,...rows].join('\n');
@@ -1339,13 +1338,14 @@ function PageAttendance({ toast }) {
 
 // ─── MEMBERS PAGE ─────────────────────────────────────────────────────────────
 function PageMembers({ toast }) {
-  const { members, setMembers, gymUser, attendance } = useGym();
+  const { members, setMembers, gymUser, attendance, trainers, staff } = useGym();
   const [filter,setFilter] = useState('all');
   const [showAdd,setShowAdd] = useState(false);
   const [showPortal,setShowPortal] = useState(null);
   const [showEdit,setShowEdit] = useState(null);
   const [showQR,setShowQR] = useState(null);
-  const [form,setForm] = useState({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'Vikram Singh',coupon:''});
+  const trainerNames = [...new Set([...trainers.map(t=>t.name), ...staff.filter(s=>s.role==='Trainer').map(s=>s.name)])].filter(Boolean);
+  const [form,setForm] = useState({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'',coupon:''});
   const [editForm,setEditForm] = useState({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'',status:'Active'});
   const [saving,setSaving] = useState(false);
   const portalBase = `https://onlifit.vercel.app/member?gym=${gymUser.gym_id}`;
@@ -1375,7 +1375,7 @@ function PageMembers({ toast }) {
     const newMember = {name:memberData.name,init,id,phone:memberData.phone,email:memberData.email,plan:memberData.plan,start:startStr,expiry:expStr,status:'Active',trainer:memberData.trainer,visits:0,dob:memberData.dob};
     setMembers(prev=>[...prev,newMember]);
     setShowAdd(false);
-    setForm({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'Vikram Singh',coupon:''});
+    setForm({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'',coupon:''});
     toast(`Member added! Portal: ${portalBase}&member=${id}`);
     // Persist to Supabase via SECURITY DEFINER RPC (bypasses RLS)
     const { error } = await supabase.rpc('save_gym_member', {
@@ -1472,9 +1472,9 @@ function PageMembers({ toast }) {
 
       {/* Add Member Modal */}
       <Modal open={showAdd} onClose={()=>setShowAdd(false)} title="Add New Member">
-        <div className="rg-2"><FG label="Full Name *"><Fi placeholder="Arjun Mehta" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></FG><FG label="Phone"><Fi placeholder="+91 98765 43210" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></FG></div>
-        <div className="rg-2"><FG label="Email"><Fi placeholder="arjun@email.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></FG><FG label="Date of Birth"><Fi type="date" value={form.dob} onChange={e=>setForm({...form,dob:e.target.value})}/></FG></div>
-        <div className="rg-2"><FG label="Membership Plan"><Fs value={form.plan} onChange={e=>setForm({...form,plan:e.target.value})}><option>Monthly</option><option>Quarterly</option><option>Yearly</option></Fs></FG><FG label="Assign Trainer"><Fs value={form.trainer} onChange={e=>setForm({...form,trainer:e.target.value})}><option>Vikram Singh</option><option>Pooja Reddy</option><option>Aryan Nair</option></Fs></FG></div>
+        <div className="rg-2"><FG label="Full Name *"><Fi placeholder="Full Name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></FG><FG label="Phone"><Fi placeholder="+91 XXXXX XXXXX" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></FG></div>
+        <div className="rg-2"><FG label="Email"><Fi placeholder="email@example.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></FG><FG label="Date of Birth"><Fi type="date" value={form.dob} onChange={e=>setForm({...form,dob:e.target.value})}/></FG></div>
+        <div className="rg-2"><FG label="Membership Plan"><Fs value={form.plan} onChange={e=>setForm({...form,plan:e.target.value})}><option>Monthly</option><option>Quarterly</option><option>Yearly</option></Fs></FG><FG label="Assign Trainer"><Fs value={form.trainer} onChange={e=>setForm({...form,trainer:e.target.value})}><option value="">-- None --</option>{trainerNames.map(t=><option key={t}>{t}</option>)}</Fs></FG></div>
         <div style={{...s.inset(),...s.flex(12),marginBottom:12,background:G.bg3,border:`1px solid ${G.border2}`}}>
           <div style={{width:48,height:48,background:G.bg4,border:`1px solid ${G.accentL}`,borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>🆔</div>
           <div><div style={{fontSize:11,fontWeight:700,color:G.navy,marginBottom:2}}>Auto-Generated Member ID</div><div style={{...s.mono,fontSize:13,color:G.accent,fontWeight:700}}>IQ-KRM-{String(members.length+1).padStart(4,'0')}</div><div style={{fontSize:10,color:G.text3,marginTop:2}}>QR code + Portal access generated on save</div></div>
@@ -1649,7 +1649,9 @@ PERSONALITY RULES -- CRITICAL:
         const yearly = active.filter(m=>m.plan==='Yearly').length*14000;
         fallback = `Based on your **${active.length} active members**: Monthly plans bring ₹${monthly.toLocaleString('en-IN')}, Quarterly ₹${quarterly.toLocaleString('en-IN')}, Yearly ₹${yearly.toLocaleString('en-IN')} per cycle. Your biggest lever is converting the ${active.filter(m=>m.plan==='Monthly').length} monthly members to yearly -- that's a 9x LTV jump per member.`;
       } else if(tl.includes('trainer')||tl.includes('staff')) {
-        fallback = `Vikram Singh leads with the most active members, followed by Pooja Reddy and Aryan Nair. If one trainer is overloaded, member experience drops -- keep each trainer under 25 active PT clients for quality. Your current split looks balanced.`;
+        fallback = trainers.length > 0
+          ? `Your trainers: ${trainers.map(t=>t.name).join(', ')}. If one trainer is overloaded, member experience drops -- keep each trainer under 25 active PT clients for quality.`
+          : `You don't have any trainers added yet. Add trainers in the Staff section to assign them to members.`;
       } else if(tl.includes('retention')||tl.includes('churn')) {
         fallback = `Top 3 retention moves for this week:\n1. Call the ${expired.length} expired members personally -- don't just text.\n2. Send a "We miss you" message to members absent 7+ days.\n3. Run a 48-hour referral offer -- existing members bring a friend, both get a free PT session.`;
       } else {

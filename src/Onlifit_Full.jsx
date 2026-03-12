@@ -3423,7 +3423,7 @@ export default function App() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user) {
-          const { data } = await supabase.from('gym_accounts').select('*').eq('email', session.user.email).single();
+          const { data } = await supabase.rpc('get_gym_account', { p_email: session.user.email });
           if (data) {
             const acct = { gym_id: data.gym_id, user_id: data.user_id, email: data.email, name: data.name, gymName: data.gym_name, city: data.city, role: data.role, isNew: data.is_new };
             setGymUser(acct);
@@ -3587,34 +3587,35 @@ export default function App() {
     setGymProfile(profile);
     setShowOnboarding(false);
     showToast(`🚀 ${gymUser.gymName} is live! ${newMembers.length} members imported.`);
-    // Persist to Supabase
+    // Persist to Supabase via RPC (bypasses RLS)
     if (gymUser) {
-      // Save gym profile
-      await supabase.from('gym_profiles').upsert({
-        gym_id: gymUser.gym_id, gym_name: profile.gymName, tagline: profile.tagline,
-        address: profile.address, city: profile.city, phone: profile.phone,
-        gstin: profile.gstin, open_time: profile.openTime, close_time: profile.closeTime,
-      });
-      // Mark gym as onboarded
-      await supabase.from('gym_accounts').update({ is_new: false }).eq('gym_id', gymUser.gym_id);
-      // Save members
-      if (newMembers.length) {
-        const rows = newMembers.map(m => ({
-          id: m.id, gym_id: gymUser.gym_id, name: m.name, initials: m.init, phone: m.phone||'',
-          email: m.email||'', dob: m.dob||'', plan: m.plan, start_date: m.start, expiry_date: m.expiry,
-          status: m.status||'Active', trainer: m.trainer||'', visits: m.visits||0,
-        }));
-        await supabase.from('members').insert(rows);
-      }
-      // Save staff
-      if (newStaff.length) {
-        const rows = newStaff.map(st => ({
-          id: st.id, gym_id: gymUser.gym_id, name: st.name, initials: st.init, role: st.role,
-          branch: st.branch||'', members_count: st.members||0, present: st.present??true,
-          salary: parseInt(st.salary)||0, phone: st.phone||'', email: st.email||'', joined: st.joined||'', qr: st.qr||'',
-        }));
-        await supabase.from('staff').insert(rows);
-      }
+      try {
+        await supabase.rpc('complete_gym_onboarding', {
+          p_gym_id: gymUser.gym_id,
+          p_gym_name: profile.gymName || gymUser.gymName,
+          p_tagline: profile.tagline || '',
+          p_address: profile.address || '',
+          p_city: profile.city || gymUser.city || '',
+          p_phone: profile.phone || '',
+          p_gstin: profile.gstin || '',
+          p_open_time: profile.openTime || '06:00',
+          p_close_time: profile.closeTime || '22:00',
+          p_members: newMembers.length ? JSON.stringify(newMembers.map(m => ({
+            id: m.id, gym_id: gymUser.gym_id, name: m.name, initials: m.init, phone: m.phone||'',
+            email: m.email||'', dob: m.dob||'', plan: m.plan, start_date: m.start, expiry_date: m.expiry,
+            status: m.status||'Active', trainer: m.trainer||'', visits: m.visits||0,
+          }))) : '[]',
+          p_staff: newStaff.length ? JSON.stringify(newStaff.map(st => ({
+            id: st.id, gym_id: gymUser.gym_id, name: st.name, initials: st.init, role: st.role,
+            branch: st.branch||'', members_count: st.members||0, present: st.present??true,
+            salary: parseInt(st.salary)||0, phone: st.phone||'', email: st.email||'', joined: st.joined||'', qr: st.qr||'',
+          }))) : '[]',
+        });
+        // Update local state so re-login doesn't show onboarding again
+        const updated = { ...gymUser, isNew: false };
+        setGymUser(updated);
+        localStorage.setItem('onlifit_gym_user', JSON.stringify(updated));
+      } catch(e) { console.error("[Onboard] Save error:", e); }
     }
   };
 

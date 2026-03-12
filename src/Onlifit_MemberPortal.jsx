@@ -129,13 +129,15 @@ function LoginScreen({ onLogin }) {
       plan_details: { name: data.plan, price: 0, duration: '', features: ["Gym Access"], nextBilling: data.expiry_date },
       workout: { goal:"General Fitness", level:"Intermediate", weeks:12, days:[] },
     };
-    const { data: att } = await supabase.from('attendance').select('*').eq('member_id', data.id).order('created_at', { ascending: false }).limit(30);
-    if (att && att.length > 0) {
+    const { data: attJson } = await supabase.rpc('get_member_attendance', { p_member_id: data.id });
+    const att = Array.isArray(attJson) ? attJson : (attJson ? JSON.parse(attJson) : []);
+    if (att.length > 0) {
       m.attendance = att.map(a => ({ date: a.date, day: '', checked: true, time: a.check_in }));
       const thisMonth = new Date().toLocaleString('en-US',{month:'short'});
       m.thisMonth = att.filter(a => a.date?.includes(thisMonth)).length;
     }
-    const { data: planData } = await supabase.from('plans').select('price').eq('gym_id', data.gym_id).eq('name', data.plan).single();
+    const { data: planJson } = await supabase.rpc('get_plan_price', { p_gym_id: data.gym_id, p_plan_name: data.plan });
+    const planData = typeof planJson === 'string' ? JSON.parse(planJson) : planJson;
     if (planData) { m.planPrice = planData.price; m.plan_details.price = planData.price; }
     return m;
   };
@@ -388,7 +390,8 @@ function MemberPortal({ member: initialMember, onLogout }) {
   // Refresh member data from Supabase
   const refreshMember = async () => {
     try {
-      const { data } = await supabase.from('members').select('*').eq('id', member.id).single();
+      const { data: mJson } = await supabase.rpc('get_member_by_id', { p_member_id: member.id });
+      const data = typeof mJson === 'string' ? JSON.parse(mJson) : mJson;
       if (data) {
         const expDate = data.expiry_date ? new Date(data.expiry_date) : null;
         const daysLeft = expDate ? Math.max(0, Math.ceil((expDate - Date.now()) / 864e5)) : 0;
@@ -411,7 +414,8 @@ function MemberPortal({ member: initialMember, onLogout }) {
     (async () => {
       setLoadingPay(true);
       try {
-        const { data } = await supabase.from('payments').select('*').eq('member_id', member.id).order('created_at', { ascending: false }).limit(50);
+        const { data: payJson } = await supabase.rpc('get_member_payments', { p_member_id: member.id });
+        const data = Array.isArray(payJson) ? payJson : (payJson ? JSON.parse(payJson) : []);
         if (data) setPayments(data);
       } catch(e) { /* silent */ }
       setLoadingPay(false);
@@ -457,13 +461,17 @@ function MemberPortal({ member: initialMember, onLogout }) {
       invoice: invNo, plan: plan.name, amount: String(plan.price), mode, date: today,
       status: 'Paid', txn_id: txnId||'',
     };
-    const { error: payErr } = await supabase.from('payments').insert(paymentData);
+    const { error: payErr } = await supabase.rpc('insert_member_payment', {
+      p_gym_id: member.gym_id||'GYM001', p_member_id: member.id, p_member_name: member.name,
+      p_invoice: invNo, p_plan: plan.name, p_amount: String(plan.price), p_mode: mode,
+      p_date: today, p_status: 'Paid', p_txn_id: txnId||'',
+    });
     if (payErr) { showToast('⚠️ Payment recording failed'); return; }
 
     // Update member expiry
-    const { error: memErr } = await supabase.from('members').update({
-      expiry_date: newExpiryStr, plan: plan.name, status: 'Active',
-    }).eq('id', member.id);
+    const { error: memErr } = await supabase.rpc('update_member_portal', {
+      p_id: member.id, p_expiry_date: newExpiryStr, p_plan: plan.name, p_status: 'Active',
+    });
 
     if (memErr) { showToast('⚠️ Membership update failed'); return; }
 
@@ -477,9 +485,9 @@ function MemberPortal({ member: initialMember, onLogout }) {
   const handleFreeze = async () => {
     setFreezing(true);
     const today = new Date().toISOString().slice(0, 10);
-    const { error } = await supabase.from('members').update({
-      status: 'Frozen', freeze_start: today,
-    }).eq('id', member.id);
+    const { error } = await supabase.rpc('update_member_portal', {
+      p_id: member.id, p_status: 'Frozen', p_freeze_start: today,
+    });
     if (error) { showToast('⚠️ Freeze failed'); }
     else { showToast('❄️ Membership frozen. Your remaining days are preserved.'); await refreshMember(); }
     setFreezing(false);
@@ -495,9 +503,9 @@ function MemberPortal({ member: initialMember, onLogout }) {
     newExpiry.setDate(newExpiry.getDate() + frozenDays);
     const newExpiryStr = newExpiry.toISOString().slice(0, 10);
 
-    const { error } = await supabase.from('members').update({
-      status: 'Active', freeze_start: '', expiry_date: newExpiryStr,
-    }).eq('id', member.id);
+    const { error } = await supabase.rpc('update_member_portal', {
+      p_id: member.id, p_status: 'Active', p_freeze_start: '', p_expiry_date: newExpiryStr,
+    });
     if (error) { showToast('⚠️ Unfreeze failed'); }
     else { showToast(`✅ Membership active! +${frozenDays} days added. New expiry: ${newExpiryStr}`); await refreshMember(); }
     setFreezing(false);
@@ -506,10 +514,10 @@ function MemberPortal({ member: initialMember, onLogout }) {
   // ── Profile Save ──
   const handleProfileSave = async () => {
     setSaving(true);
-    const { error } = await supabase.from('members').update({
-      phone: editForm.phone, email: editForm.email,
-      emergency_contact: editForm.emergency_contact, emergency_phone: editForm.emergency_phone,
-    }).eq('id', member.id);
+    const { error } = await supabase.rpc('update_member_portal', {
+      p_id: member.id, p_phone: editForm.phone, p_email: editForm.email,
+      p_emergency_contact: editForm.emergency_contact, p_emergency_phone: editForm.emergency_phone,
+    });
     if (error) { showToast('⚠️ Update failed'); }
     else { showToast('✅ Profile updated!'); setEditing(false); await refreshMember(); }
     setSaving(false);

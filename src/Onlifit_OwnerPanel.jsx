@@ -1214,8 +1214,8 @@ function Panel({ onLogout }) {
   };
 
   const doAddGym = async (newGym, creds) => {
-    // 1. Create Supabase Auth user so gym owner can login
     try {
+      // 1. Create Supabase Auth user so gym owner can login
       const { data: authData, error: authErr } = await supabase.auth.signUp({
         email: creds.email,
         password: creds.tempPw,
@@ -1226,10 +1226,16 @@ function Panel({ onLogout }) {
         toast$(`Auth error: ${authErr.message}`, "error");
         return;
       }
-      // Use the Supabase Auth UUID as user_id
       const authUserId = authData?.user?.id || creds.userId;
 
-      // 2. Insert gym_accounts record
+      // 2. Re-login as admin BEFORE inserts (signUp switches session to new user)
+      await new Promise(r => setTimeout(r, 6000));
+      const storedPw = sessionStorage.getItem('onlifit_admin_pw');
+      if (storedPw) {
+        await supabase.auth.signInWithPassword({ email: ADMIN_EMAILS[0], password: storedPw });
+      }
+
+      // 3. Insert gym_accounts record (now as admin)
       const { error: gymErr } = await supabase.from('gym_accounts').insert({
         gym_id: newGym.id, user_id: authUserId, email: creds.email,
         name: newGym.owner, gym_name: newGym.name,
@@ -1237,16 +1243,8 @@ function Panel({ onLogout }) {
       });
       if (gymErr) { console.error("[OwnerPanel] gym_accounts insert error:", gymErr); toast$(`DB error: ${gymErr.message}`, "error"); return; }
 
-      // 3. Insert gym_profiles record
+      // 4. Insert gym_profiles record
       await supabase.from('gym_profiles').insert({ gym_id: newGym.id, gym_name: newGym.name, city: newGym.city });
-
-      // 4. Re-login as admin (signUp switches the session to new user)
-      // Supabase enforces a minimum gap between auth requests
-      await new Promise(r => setTimeout(r, 6000));
-      const storedPw = sessionStorage.getItem('onlifit_admin_pw');
-      if (storedPw) {
-        await supabase.auth.signInWithPassword({ email: ADMIN_EMAILS[0], password: storedPw });
-      }
     } catch(e) { console.error("[OwnerPanel] Add gym error:", e); toast$("Failed to onboard gym. Try again.", "error"); return; }
     setGyms(gs=>[...gs,newGym]);
     setAddOpen(false);

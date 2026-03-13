@@ -1158,8 +1158,21 @@ function PageSupport({ gyms }) {
 // ═════════════════════════════════════════════════════════════════════════════
 // SETTINGS PAGE
 // ═════════════════════════════════════════════════════════════════════════════
-function PageSettings({ toast$ }) {
+function PageSettings({ toast$, gyms }) {
   const [policy, setPolicy] = useState("3");
+
+  const exportAllData = () => {
+    if(!gyms||!gyms.length){toast$("No gym data to export");return;}
+    const esc = (v) => { const s = String(v ?? ''); return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g,'""')}"` : s; };
+    const headers = ['Gym ID','Name','Owner','City','Status','Members','Plan','Last Paid'];
+    const rows = gyms.map(g=>[g.id,g.name,g.owner,g.city,g.status,g.members||0,g.plan||'',g.lastPaid||''].map(esc));
+    const csv = [headers.join(','), ...rows.map(r=>r.join(','))].join('\n');
+    const blob = new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href=url; a.download=`onlifit_all_gyms_${new Date().toISOString().slice(0,10)}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    toast$(`✅ Exported ${gyms.length} gym records`);
+  };
   return (
     <div className="page-anim" style={{ maxWidth:620 }}>
       {/* Platform */}
@@ -1229,7 +1242,7 @@ function PageSettings({ toast$ }) {
         <SH title="⚠ Danger Zone" />
         <div style={{ fontSize:12, color:G.text2, marginBottom:14 }}>These actions are permanent and cannot be undone.</div>
         <div style={{ ...fl(10) }}>
-          <Btn size="sm" variant="ghost" onClick={()=>toast$("Full data export emailed to owner@onlifit.app")}>Export All Data</Btn>
+          <Btn size="sm" variant="ghost" onClick={exportAllData}>Export All Data</Btn>
           <Btn size="sm" variant="danger" onClick={()=>toast$("Database backup created successfully.", "warn")}>Backup Database</Btn>
         </div>
       </div>
@@ -1467,7 +1480,7 @@ function Panel({ onLogout }) {
           {page==="gyms"     && <PageGyms     gyms={gyms} onAction={doAction} onAdd={()=>setAddOpen(true)} />}
           {page==="revenue"  && <PageRevenue  gyms={gyms} />}
           {page==="support"  && <PageSupport  gyms={gyms} />}
-          {page==="settings" && <PageSettings toast$={toast$} />}
+          {page==="settings" && <PageSettings toast$={toast$} gyms={gyms} />}
         </div>
       </main>
 

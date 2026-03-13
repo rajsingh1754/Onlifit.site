@@ -102,6 +102,16 @@ const s = {
   textarea:{width:'100%',background:G.bg,border:`1.5px solid ${G.border}`,borderRadius:8,padding:'9px 12px',fontSize:13,color:G.text,outline:'none',resize:'vertical',minHeight:72},
 };
 
+// ─── CSV DOWNLOAD HELPER ──────────────────────────────────────────────────────
+function downloadCSV(rows, headers, filename) {
+  const esc = (v) => { const s = String(v ?? ''); return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g,'""')}"` : s; };
+  const csv = [headers.join(','), ...rows.map(r => r.map(esc).join(','))].join('\n');
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ─── GYM CONTEXT -- single source of truth synced across all pages ─────────────
 let _gym = {};
 const useGym = () => _gym;
@@ -1267,7 +1277,13 @@ function PageAttendance({ toast }) {
       {/* TODAY'S LOG TAB */}
       {tab==='log' && (
         <div style={s.card()}>
-          <SH title="Today's Attendance Log" sub={`${todayAtt.length} check-ins · ${new Date().toLocaleDateString('en-IN',{weekday:'long',month:'long',day:'numeric'})}`} right={<Btn variant="ghost" size="sm" onClick={()=>toast('Exporting...')}>↓ Export CSV</Btn>}/>
+          <SH title="Today's Attendance Log" sub={`${todayAtt.length} check-ins · ${new Date().toLocaleDateString('en-IN',{weekday:'long',month:'long',day:'numeric'})}`} right={<Btn variant="ghost" size="sm" onClick={()=>{
+            if(!todayAtt.length){toast('No attendance data to export');return;}
+            downloadCSV(todayAtt.map(a=>[a.memberName,a.memberId,a.checkIn,a.trainer||'',a.method||'',a.status]),
+              ['Member','ID','Check-in','Trainer','Method','Status'],
+              `attendance_${new Date().toISOString().slice(0,10)}_${gymUser.gym_id}.csv`);
+            toast(`✅ Exported ${todayAtt.length} records`);
+          }}>↓ Export CSV</Btn>}/>
           {todayAtt.length===0 && <div style={{textAlign:'center',padding:'32px 0',fontSize:14,color:G.text3}}>No check-ins today yet.</div>}
           <div class="tbl-wrap"><table style={{width:'100%',borderCollapse:'collapse'}}>
             <Th cols={['Member','ID','Check-in','Trainer','Method','Status','']}/>
@@ -1426,7 +1442,13 @@ function PageMembers({ toast }) {
       <div style={s.card()}>
         <SH title="Member Directory" sub={`${gymUser.gymName} · Synced with Portal & Attendance`}
           right={<div style={s.flex(8)}>
-            <Btn variant="ghost" size="sm" onClick={()=>toast('Exporting CSV...')}>↓ Export</Btn>
+            <Btn variant="ghost" size="sm" onClick={()=>{
+            if(!list.length){toast('No members to export');return;}
+            downloadCSV(list.map(m=>[m.name,m.id,m.phone||'',m.email||'',m.plan,m.start,m.expiry,m.status,m.trainer||'',m.visits||0]),
+              ['Name','ID','Phone','Email','Plan','Start','Expiry','Status','Trainer','Visits'],
+              `members_${gymUser.gym_id}_${new Date().toISOString().slice(0,10)}.csv`);
+            toast(`✅ Exported ${list.length} members`);
+          }}>↓ Export</Btn>
             <Btn variant="ghost" size="sm" onClick={()=>toast(`Portal: ${portalBase}`)}>📱 Portal Link</Btn>
             <Btn variant="primary" size="sm" onClick={()=>setShowAdd(true)}>+ Add Member</Btn>
           </div>}/>
@@ -1923,7 +1945,14 @@ function PageRevenue({ toast }) {
 
       {/* Annual chart */}
       <div style={{marginBottom:16}}>
-        <div style={s.card()}><SH title="Annual Revenue" sub={hasAnnualData?`${thisYear} · from payments`:'No payments yet — record fees to see chart'} right={<Btn variant="ghost" size="sm" onClick={()=>toast('Exporting Excel...')}>↓ Excel</Btn>}/><BarChart data={annualChart} height={180}/></div>
+        <div style={s.card()}><SH title="Annual Revenue" sub={hasAnnualData?`${thisYear} · from payments`:'No payments yet — record fees to see chart'} right={<Btn variant="ghost" size="sm" onClick={()=>{
+            if(!hasAnnualData){toast('No revenue data to export');return;}
+            const fullMonths=['January','February','March','April','May','June','July','August','September','October','November','December'];
+            downloadCSV(annual.map((d,i)=>[fullMonths[i],`${(d.v*1000).toLocaleString()}`]),
+              ['Month',`Revenue ${thisYear} (₹)`],
+              `revenue_${thisYear}_${gymUser.gym_id}.csv`);
+            toast('✅ Revenue exported');
+          }}>↓ Excel</Btn>}/><BarChart data={annualChart} height={180}/></div>
       </div>
 
       {/* Pending dues -- computed from expired members */}
@@ -1995,37 +2024,89 @@ function PageFees({ toast }) {
 
   const generatePDF = (paymentData) => {
     const doc = new jsPDF();
+    const ml = 20, rEdge = 190;
     const gName = gymProfile.gymName || gymUser.gymName || 'Onlifit Gym';
+
     // Header
-    doc.setFontSize(22); doc.setFont('helvetica','bold'); doc.setTextColor(22,163,74); doc.text(gName,20,25);
-    doc.setFontSize(9); doc.setTextColor(100); doc.text('Tax Invoice',20,32);
-    doc.setFontSize(10); doc.setTextColor(60); doc.text(invNo,190,25,{align:'right'}); doc.text(today,190,32,{align:'right'});
-    // Gym details
-    doc.setDrawColor(200); doc.line(20,37,190,37);
-    let y = 45;
-    if(gymProfile.address) { doc.setFontSize(9); doc.text(gymProfile.address,20,y); y+=5; }
-    if(gymProfile.gstin) { doc.text(`GSTIN: ${gymProfile.gstin}`,20,y); y+=5; }
-    if(gymProfile.phone) { doc.text(`Phone: ${gymProfile.phone}`,20,y); y+=5; }
-    // Member details
-    y += 5; doc.setFontSize(11); doc.setFont('helvetica','bold'); doc.setTextColor(15,23,42); doc.text('Bill To:',20,y); y+=7;
-    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(60);
-    doc.text(paymentData.memberName || 'Walk-in',20,y); y+=5;
-    if(paymentData.memberId) { doc.text(`ID: ${paymentData.memberId}`,20,y); y+=5; }
+    doc.setFontSize(20); doc.setFont('helvetica','bold'); doc.setTextColor(22,163,74);
+    doc.text(gName, ml, 28);
+    doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.setTextColor(120);
+    doc.text('TAX INVOICE', ml, 38);
+    doc.setTextColor(60);
+    doc.text(invNo, rEdge, 28, { align:'right' });
+    doc.text(today, rEdge, 38, { align:'right' });
+
+    // Separator
+    doc.setDrawColor(200); doc.line(ml, 44, rEdge, 44);
+
+    // Gym details (left)
+    let y = 56;
+    doc.setFontSize(9); doc.setTextColor(100);
+    if(gymProfile.address) { doc.text(gymProfile.address, ml, y); y += 7; }
+    if(gymProfile.gstin) { doc.text(`GSTIN: ${gymProfile.gstin}`, ml, y); y += 7; }
+    if(gymProfile.phone) { doc.text(`Phone: ${gymProfile.phone}`, ml, y); y += 7; }
+
+    // Bill To (right)
+    let ry = 56;
+    doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(80);
+    doc.text('BILL TO:', 120, ry); ry += 8;
+    doc.setFont('helvetica','normal'); doc.setTextColor(60); doc.setFontSize(10);
+    doc.text(paymentData.memberName || 'Walk-in', 120, ry); ry += 7;
+    if(paymentData.memberId) { doc.setFontSize(9); doc.text(`ID: ${paymentData.memberId}`, 120, ry); ry += 7; }
+
+    y = Math.max(y, ry) + 16;
+
+    // Table header
+    doc.setDrawColor(200); doc.setFillColor(245,247,250);
+    doc.rect(ml, y, rEdge - ml, 12, 'F');
+    doc.line(ml, y, rEdge, y);
+    doc.setFontSize(9); doc.setFont('helvetica','bold'); doc.setTextColor(80);
+    doc.text('Description', ml + 5, y + 8);
+    doc.text('Amount', rEdge - 5, y + 8, { align:'right' });
+    y += 12;
+    doc.line(ml, y, rEdge, y);
+
     // Line items
-    y += 8; doc.setDrawColor(200); doc.line(20,y,190,y); y+=8;
-    const items = [['Plan',planName],['Base Amount',`Rs ${baseEx.toLocaleString()}`],['GST (18%)',`Rs ${gst.toLocaleString()}`]];
-    if(disc>0) items.push(['Discount',`- Rs ${disc.toLocaleString()}`]);
-    items.push(['Total',`Rs ${total.toLocaleString()}`]);
-    items.forEach(([k,v],i)=>{
-      const isTotal = i===items.length-1;
-      doc.setFont('helvetica',isTotal?'bold':'normal'); doc.setFontSize(isTotal?12:10);
-      doc.setTextColor(isTotal?22:60,isTotal?163:60,isTotal?74:60);
-      doc.text(k,20,y); doc.text(v,190,y,{align:'right'}); y+=7;
-      if(isTotal) { doc.setDrawColor(22,163,74); doc.line(20,y-9,190,y-9); }
+    const items = [
+      ['Membership Plan', planName],
+      ['Base Amount (excl. GST)', `Rs ${baseEx.toLocaleString()}`],
+      ['GST @ 18%', `Rs ${gst.toLocaleString()}`],
+    ];
+    if(disc > 0) items.push(['Discount', `- Rs ${disc.toLocaleString()}`]);
+
+    doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(50);
+    items.forEach(([label, val]) => {
+      y += 12;
+      doc.text(label, ml + 5, y);
+      doc.text(val, rEdge - 5, y, { align:'right' });
     });
+
+    // Separator before total — big gap
+    y += 18;
+    doc.setDrawColor(22,163,74); doc.setLineWidth(0.8);
+    doc.line(ml, y, rEdge, y);
+
+    // Total — big gap below line
+    y += 16;
+    doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.setTextColor(22,163,74);
+    doc.text('TOTAL', ml + 5, y);
+    doc.text(`Rs ${total.toLocaleString()}`, rEdge - 5, y, { align:'right' });
+
+    // Bottom line — big gap below total
+    y += 10;
+    doc.setDrawColor(200); doc.setLineWidth(0.2);
+    doc.line(ml, y, rEdge, y);
+
     // Payment mode
-    y+=5; doc.setFontSize(9); doc.setTextColor(100); doc.text(`Payment Mode: ${paymentData.mode}`,20,y);
-    y+=10; doc.setFontSize(8); doc.setTextColor(150); doc.text('Generated by Onlifit Gym Management',105,y,{align:'center'});
+    y += 16;
+    doc.setFontSize(10); doc.setFont('helvetica','normal'); doc.setTextColor(80);
+    doc.text(`Payment Mode:  ${paymentData.mode}`, ml, y);
+
+    // Footer
+    y += 30;
+    doc.setFontSize(8); doc.setTextColor(160);
+    doc.text('Generated by Onlifit Gym Management · onlifit.vercel.app', 105, y, { align:'center' });
+
     doc.save(`${invNo}.pdf`);
   };
 

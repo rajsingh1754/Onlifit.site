@@ -787,7 +787,7 @@ function PageDashboard({ toast }) {
   });
   // If no payment data, show placeholder bars
   const hasRevData = revData.some(d=>d.v>0);
-  const chartData = hasRevData ? revData : [420,380,510,490,620,580,700,650,720,680,740,820].map((v,i)=>({v,l:months[i],dim:true}));
+  const chartData = hasRevData ? revData : months.map((_,i)=>({v:0,l:months[i],dim:true}));
 
   // Real churn risk — active members with longest attendance gap
   const churn = members.filter(m=>m.status==='Active').map(m=>{
@@ -1852,9 +1852,8 @@ function PageRevenue({ toast }) {
           <div style={s.inset(16)}>
             <div style={{fontSize:11,fontWeight:700,color:G.text3,textTransform:'uppercase',letterSpacing:'.7px',marginBottom:12}}>Revenue Sources</div>
             {[
-              {l:'Membership Fees', v:monthRevenue,  pct:Math.round(monthRevenue/totalRevenue*100)},
-              {l:'PT Sessions',     v:ptRevenue,     pct:Math.round(ptRevenue/totalRevenue*100)},
-              {l:'Supplement Sales',v:0,              pct:0},
+              {l:'Membership Fees', v:monthRevenue,  pct:totalRevenue>0?Math.round(monthRevenue/totalRevenue*100):0},
+              {l:'PT Sessions',     v:ptRevenue,     pct:totalRevenue>0?Math.round(ptRevenue/totalRevenue*100):0},
             ].map(r=>(
               <div key={r.l} style={{marginBottom:12}}>
                 <div style={{...s.flex(0),justifyContent:'space-between',fontSize:12,marginBottom:4}}>
@@ -1921,21 +1920,9 @@ function PageRevenue({ toast }) {
         </div>
       </div>
 
-      {/* Annual chart + branch breakdown */}
-      <div className="rg-21" style={{marginBottom:16}}>
-        <div style={s.card()}><SH title="Annual Revenue" sub={hasAnnualData?`${thisYear} · from payments`:'Sample data'} right={<Btn variant="ghost" size="sm" onClick={()=>toast('Exporting Excel...')}>↓ Excel</Btn>}/><BarChart data={annualChart} height={180}/></div>
-        <div style={s.card()}>
-          <SH title="Branch Revenue" sub="March 2025"/>
-          {[{n:'Koramangala',v:'₹3.12L',p:85},{n:'Indiranagar',v:'₹2.18L',p:60},{n:'Whitefield',v:'₹1.70L',p:45}].map(b=>(
-            <div key={b.n} style={{marginBottom:14}}>
-              <div style={{...s.flex(0),justifyContent:'space-between',fontSize:13,marginBottom:4}}>
-                <span style={{fontWeight:600,color:G.navy}}>{b.n}</span>
-                <span style={{...s.mono,fontWeight:700,color:G.accent}}>{b.v}</span>
-              </div>
-              <Progress pct={b.p} dim={b.p<70}/>
-            </div>
-          ))}
-        </div>
+      {/* Annual chart */}
+      <div style={{marginBottom:16}}>
+        <div style={s.card()}><SH title="Annual Revenue" sub={hasAnnualData?`${thisYear} · from payments`:'No payments yet — record fees to see chart'} right={<Btn variant="ghost" size="sm" onClick={()=>toast('Exporting Excel...')}>↓ Excel</Btn>}/><BarChart data={annualChart} height={180}/></div>
       </div>
 
       {/* Pending dues -- computed from expired members */}
@@ -2735,7 +2722,7 @@ function PageEnquiries({ toast }) {
   const [saving, setSaving] = useState(false);
 
   const STATUSES = ['All','New','Contacted','Follow-up','Trial','Converted','Lost'];
-  const SOURCES = ['Walk-in','Phone','Instagram','Google','Referral','Website'];
+  const SOURCES = ['Walk-in','Phone','WhatsApp','Instagram','Google','Referral','Website'];
   const STATUS_COLORS = {New:'#3b82f6',Contacted:'#eab308','Follow-up':'#f97316',Trial:'#a855f7',Converted:'#22c55e',Lost:'#ef4444'};
 
   const today = new Date().toISOString().split('T')[0];
@@ -2803,9 +2790,8 @@ function PageEnquiries({ toast }) {
   const EnqForm = ({ enq, onSave, title }) => {
     const [f, setF] = useState(enq || { name:'', phone:'', email:'', source:'Walk-in', interest:'Monthly', assignedTo:'', notes:'', followUpDate:'', status:'New' });
     return (
-      <Modal onClose={() => { setShowAdd(false); setShowEdit(null); }}>
-        <div style={{padding:24,maxWidth:500,width:'100%'}}>
-          <h3 style={{color:G.text,margin:'0 0 16px',fontSize:16}}>{title}</h3>
+      <Modal open onClose={() => { setShowAdd(false); setShowEdit(null); }} title={title}>
+        <div style={{maxWidth:500,width:'100%'}}>
           <FG label="Name *"><input value={f.name} onChange={e=>setF({...f,name:e.target.value})} style={s.input} placeholder="Full name"/></FG>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             <FG label="Phone"><input value={f.phone} onChange={e=>setF({...f,phone:e.target.value})} style={s.input} placeholder="+91 ..."/></FG>
@@ -2882,7 +2868,7 @@ function PageEnquiries({ toast }) {
                     {enq.email && <div style={{fontSize:11,color:G.text2}}>{enq.email}</div>}
                   </td>
                   <td style={{padding:'10px 12px',color:G.text}}>{enq.phone}</td>
-                  <td style={{padding:'10px 12px'}}><span style={{padding:'3px 8px',borderRadius:10,fontSize:11,fontWeight:600,background:enq.source==='Walk-in'?'#dbeafe':enq.source==='Instagram'?'#fce7f3':enq.source==='Google'?'#dcfce7':enq.source==='Referral'?'#fef3c7':enq.source==='Phone'?'#e0e7ff':'#f3e8ff',color:enq.source==='Walk-in'?'#1d4ed8':enq.source==='Instagram'?'#be185d':enq.source==='Google'?'#15803d':enq.source==='Referral'?'#a16207':enq.source==='Phone'?'#3730a3':'#7e22ce'}}>{enq.source}</span></td>
+                  <td style={{padding:'10px 12px'}}><span style={{padding:'3px 8px',borderRadius:10,fontSize:11,fontWeight:600,background:enq.source==='Walk-in'?'#dbeafe':enq.source==='WhatsApp'?'#dcfce7':enq.source==='Instagram'?'#fce7f3':enq.source==='Google'?'#dcfce7':enq.source==='Referral'?'#fef3c7':enq.source==='Phone'?'#e0e7ff':'#f3e8ff',color:enq.source==='Walk-in'?'#1d4ed8':enq.source==='WhatsApp'?'#16a34a':enq.source==='Instagram'?'#be185d':enq.source==='Google'?'#15803d':enq.source==='Referral'?'#a16207':enq.source==='Phone'?'#3730a3':'#7e22ce'}}>{enq.source}</span></td>
                   <td style={{padding:'10px 12px',color:G.text}}>{enq.interest}</td>
                   <td style={{padding:'10px 12px'}}><span style={{padding:'3px 10px',borderRadius:10,fontSize:11,fontWeight:700,color:'#fff',background:STATUS_COLORS[enq.status]||G.text2}}>{enq.status}</span></td>
                   <td style={{padding:'10px 12px',color:G.text,fontSize:12}}>{enq.assignedTo||'—'}</td>
@@ -2914,7 +2900,7 @@ function PageEnquiries({ toast }) {
       {showEdit && <EnqForm enq={showEdit} onSave={saveEnquiry} title="✏️ Edit Lead" />}
       {/* Convert Confirmation */}
       {showConvert && (
-        <Modal onClose={()=>setShowConvert(null)}>
+        <Modal open onClose={()=>setShowConvert(null)}>
           <div style={{padding:24,maxWidth:400,textAlign:'center'}}>
             <div style={{fontSize:36,marginBottom:12}}>🎉</div>
             <h3 style={{color:G.text,margin:'0 0 8px'}}>Convert to Member?</h3>

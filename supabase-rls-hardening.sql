@@ -7,18 +7,19 @@
 -- ── 1. Enable RLS on all tables ──────────────────────────────────────────────
 
 ALTER TABLE gym_accounts       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE gym_members        ENABLE ROW LEVEL SECURITY;
-ALTER TABLE gym_attendance     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE gym_payments       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE gym_staff          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE gym_trainers       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE gym_plans          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE gym_enquiries      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE gym_profile        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE members            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE attendance         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payments           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE staff              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE trainers           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE plans              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE enquiries          ENABLE ROW LEVEL SECURITY;
+ALTER TABLE gym_profiles       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE staff_attendance   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE staff_salary       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE support_tickets    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE support_messages   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE platform_admins    ENABLE ROW LEVEL SECURITY;
 
 -- ── 2. Deny all direct table access (force RPC usage) ───────────────────────
 -- Since ALL operations go through SECURITY DEFINER RPCs, we don't need

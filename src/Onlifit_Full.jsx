@@ -606,7 +606,7 @@ function OnboardingWizard({ gymUser, onComplete }) {
                           <Fi placeholder="Full Name *" value={m.name} onChange={e=>setM(i,'name',e.target.value)}/>
                           <Fi placeholder="+91 98765 43210" value={m.phone} onChange={e=>setM(i,'phone',e.target.value)}/>
                           <Fi placeholder="email@gym.com" value={m.email} onChange={e=>setM(i,'email',e.target.value)}/>
-                          <Fs value={m.plan} onChange={e=>setM(i,'plan',e.target.value)}><option>Monthly</option><option>Quarterly</option><option>Yearly</option></Fs>
+                          <Fs value={m.plan} onChange={e=>setM(i,'plan',e.target.value)}>{DEFAULT_PLANS.map(p=><option key={p.name}>{p.name}</option>)}</Fs>
                         </div>
                       </div>
                     ))}
@@ -1355,7 +1355,7 @@ function PageAttendance({ toast }) {
 
 // ─── MEMBERS PAGE ─────────────────────────────────────────────────────────────
 function PageMembers({ toast }) {
-  const { members, setMembers, gymUser, attendance, trainers, staff } = useGym();
+  const { members, setMembers, gymUser, attendance, trainers, staff, plans } = useGym();
   const [filter,setFilter] = useState('all');
   const [showAdd,setShowAdd] = useState(false);
   const [showPortal,setShowPortal] = useState(null);
@@ -1385,7 +1385,7 @@ function PageMembers({ toast }) {
     const init = form.name.trim().split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
     const today = new Date();
     const startStr = today.toLocaleDateString('en-US',{month:'short',day:'numeric'});
-    const planDays = {Monthly:30,Quarterly:90,Yearly:365}[form.plan]||30;
+    const planDays = plans.find(p=>p.name===form.plan)?.days || 30;
     const expDate = new Date(today.getTime()+planDays*86400000);
     const expStr = expDate.toLocaleDateString('en-US',{month:'short',day:'numeric'});
     const memberData = {name:form.name.trim(),phone:form.phone,email:form.email,dob:form.dob,plan:form.plan,trainer:form.trainer};
@@ -1497,7 +1497,7 @@ function PageMembers({ toast }) {
       <Modal open={showAdd} onClose={()=>setShowAdd(false)} title="Add New Member">
         <div className="rg-2"><FG label="Full Name *"><Fi placeholder="Full Name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></FG><FG label="Phone"><Fi placeholder="+91 XXXXX XXXXX" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></FG></div>
         <div className="rg-2"><FG label="Email"><Fi placeholder="email@example.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></FG><FG label="Date of Birth"><Fi type="date" value={form.dob} onChange={e=>setForm({...form,dob:e.target.value})}/></FG></div>
-        <div className="rg-2"><FG label="Membership Plan"><Fs value={form.plan} onChange={e=>setForm({...form,plan:e.target.value})}><option>Monthly</option><option>Quarterly</option><option>Yearly</option></Fs></FG><FG label="Assign Trainer"><Fs value={form.trainer} onChange={e=>setForm({...form,trainer:e.target.value})}><option value="">-- None --</option>{trainerNames.map(t=><option key={t}>{t}</option>)}</Fs></FG></div>
+        <div className="rg-2"><FG label="Membership Plan"><Fs value={form.plan} onChange={e=>setForm({...form,plan:e.target.value})}>{plans.map(p=><option key={p.name} value={p.name}>{p.name}</option>)}</Fs></FG><FG label="Assign Trainer"><Fs value={form.trainer} onChange={e=>setForm({...form,trainer:e.target.value})}><option value="">-- None --</option>{trainerNames.map(t=><option key={t}>{t}</option>)}</Fs></FG></div>
         <div style={{...s.inset(),...s.flex(12),marginBottom:12,background:G.bg3,border:`1px solid ${G.border2}`}}>
           <div style={{width:48,height:48,background:G.bg4,border:`1px solid ${G.accentL}`,borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>🆔</div>
           <div><div style={{fontSize:11,fontWeight:700,color:G.navy,marginBottom:2}}>Auto-Generated Member ID</div><div style={{...s.mono,fontSize:13,color:G.accent,fontWeight:700}}>IQ-KRM-{String(members.length+1).padStart(4,'0')}</div><div style={{fontSize:10,color:G.text3,marginTop:2}}>QR code + Portal access generated on save</div></div>
@@ -1539,7 +1539,7 @@ function PageMembers({ toast }) {
         {showEdit&&<div>
           <div className="rg-2"><FG label="Full Name *"><Fi value={editForm.name} onChange={e=>setEditForm({...editForm,name:e.target.value})}/></FG><FG label="Phone"><Fi value={editForm.phone} onChange={e=>setEditForm({...editForm,phone:e.target.value})}/></FG></div>
           <div className="rg-2"><FG label="Email"><Fi value={editForm.email} onChange={e=>setEditForm({...editForm,email:e.target.value})}/></FG><FG label="Date of Birth"><Fi type="date" value={editForm.dob} onChange={e=>setEditForm({...editForm,dob:e.target.value})}/></FG></div>
-          <div className="rg-2"><FG label="Membership Plan"><Fs value={editForm.plan} onChange={e=>setEditForm({...editForm,plan:e.target.value})}><option>Monthly</option><option>Quarterly</option><option>Yearly</option></Fs></FG><FG label="Assign Trainer"><Fi value={editForm.trainer} onChange={e=>setEditForm({...editForm,trainer:e.target.value})}/></FG></div>
+          <div className="rg-2"><FG label="Membership Plan"><Fs value={editForm.plan} onChange={e=>setEditForm({...editForm,plan:e.target.value})}>{plans.map(p=><option key={p.name} value={p.name}>{p.name}</option>)}</Fs></FG><FG label="Assign Trainer"><Fi value={editForm.trainer} onChange={e=>setEditForm({...editForm,trainer:e.target.value})}/></FG></div>
           <div className="rg-2"><FG label="Status"><Fs value={editForm.status} onChange={e=>setEditForm({...editForm,status:e.target.value})}><option>Active</option><option>Expired</option><option>Frozen</option></Fs></FG><FG label="Member ID"><Fi value={showEdit.id} disabled style={{opacity:.6}}/></FG></div>
           <MFooter onCancel={()=>setShowEdit(null)} onSave={saveEditMember} saveLabel="✓ Save Changes" saving={saving}/>
           <div style={{borderTop:`1px solid ${G.border}`,marginTop:12,paddingTop:12}}>
@@ -1992,8 +1992,8 @@ function PageRevenue({ toast }) {
 }
 
 function PageFees({ toast }) {
-  const { members, gymUser, gymProfile } = useGym();
-  const [planVal,setPlanVal]=useState('14000');
+  const { members, gymUser, gymProfile, plans } = useGym();
+  const [planVal,setPlanVal]=useState(()=>String(plans[0]?.price||14000));
   const [coupon,setCoupon]=useState('');
   const [couponMsg,setCouponMsg]=useState(null);
   const [search,setSearch]=useState('');
@@ -2016,7 +2016,7 @@ function PageFees({ toast }) {
   const disc=cc?(cc.type==='pct'?Math.round(baseEx*cc.val/100):Math.min(cc.val,base)):0;
   const total=base-disc;
   const handleCoupon=v=>{setCoupon(v);const vc=VALID_COUPONS[v.toUpperCase()];if(!v)setCouponMsg(null);else if(vc)setCouponMsg({ok:true,msg:`✓ ${vc.type==='pct'?vc.val+'% off':'₹'+vc.val+' off'} applied!`});else setCouponMsg({ok:false,msg:'Invalid coupon code'});};
-  const planName = {1500:'Monthly',4000:'Quarterly',14000:'Yearly'}[planVal]||'Yearly';
+  const planName = plans.find(p=>String(p.price)===planVal)?.name || 'Membership';
   const invNo = `INV-${new Date().getFullYear()}-${String(payments.length+1).padStart(4,'0')}`;
   const today = new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'});
 
@@ -2167,7 +2167,7 @@ function PageFees({ toast }) {
             <FG label="Mode"><Fs value={payMode} onChange={e=>setPayMode(e.target.value)}><option>UPI / Razorpay</option><option>Cash</option><option>Card</option><option>EMI</option></Fs></FG>
           </div>
           <div className="rg-2">
-            <FG label="Plan"><Fs value={planVal} onChange={e=>setPlanVal(e.target.value)}><option value="1500">Monthly -- ₹1,500</option><option value="4000">Quarterly -- ₹4,000</option><option value="14000">Yearly -- ₹14,000</option></Fs></FG>
+            <FG label="Plan"><Fs value={planVal} onChange={e=>setPlanVal(e.target.value)}>{plans.map(p=><option key={p.name} value={String(p.price)}>{p.name} -- ₹{(p.price||0).toLocaleString()}</option>)}</Fs></FG>
             <FG label="Coupon"><Fi placeholder="e.g. IRON10" value={coupon} onChange={e=>handleCoupon(e.target.value)}/></FG>
           </div>
           {couponMsg&&<div style={{fontSize:12,marginBottom:10,fontWeight:600,color:couponMsg.ok?G.accent:'#dc2626',padding:'7px 12px',borderRadius:7,background:couponMsg.ok?G.bg3:'#fef2f2',border:`1px solid ${couponMsg.ok?G.accentL:'#fecaca'}`}}>{couponMsg.msg}</div>}
@@ -2212,7 +2212,7 @@ function PageFees({ toast }) {
 }
 
 function PageDiscounts({ toast }) {
-  const { members, enquiries, gymUser } = useGym();
+  const { members, enquiries, gymUser, plans } = useGym();
   const [coupons,setCoupons]=useState([{code:'IRON10',type:'pct',val:10,plan:'All Plans',uses:45,max:100,expiry:'Dec 31',cat:'General'},{code:'NEWJOIN20',type:'pct',val:20,plan:'All Plans',uses:23,max:50,expiry:'Mar 31',cat:'New Join'},{code:'REFER500',type:'flat',val:500,plan:'All Plans',uses:18,max:null,expiry:'Dec 31',cat:'Referral'}]);
   const [sendModal, setSendModal] = useState(null);
   const [sendTarget, setSendTarget] = useState('members');
@@ -2343,7 +2343,7 @@ function PageDiscounts({ toast }) {
           <FG label={newCoupon.type==='pct'?'Discount % *':'Discount ₹ *'}><Fi type="number" placeholder={newCoupon.type==='pct'?'e.g. 15':'e.g. 500'} value={newCoupon.val} onChange={e=>setNewCoupon({...newCoupon,val:e.target.value})}/></FG>
         </div>
         <div className="rg-2">
-          <FG label="Applies To"><Fs value={newCoupon.plan} onChange={e=>setNewCoupon({...newCoupon,plan:e.target.value})}><option>All Plans</option><option>Monthly</option><option>Quarterly</option><option>Yearly</option></Fs></FG>
+          <FG label="Applies To"><Fs value={newCoupon.plan} onChange={e=>setNewCoupon({...newCoupon,plan:e.target.value})}><option>All Plans</option>{plans.map(p=><option key={p.name}>{p.name}</option>)}</Fs></FG>
           <FG label="Max Uses (optional)"><Fi type="number" placeholder="Unlimited if empty" value={newCoupon.max} onChange={e=>setNewCoupon({...newCoupon,max:e.target.value})}/></FG>
         </div>
         <FG label="Expiry Date *"><Fi type="date" value={newCoupon.expiry} onChange={e=>setNewCoupon({...newCoupon,expiry:e.target.value})}/></FG>
@@ -2831,7 +2831,7 @@ function PageStaff({ toast }) {
 
 // ─── PAGE: ENQUIRIES & LEADS ─────────────────────────────────────────────────
 function PageEnquiries({ toast }) {
-  const { enquiries, setEnquiries, staff, members, setMembers, gymUser } = useGym();
+  const { enquiries, setEnquiries, staff, members, setMembers, gymUser, plans } = useGym();
   const [tab, setTab] = useState('All');
   const [showAdd, setShowAdd] = useState(false);
   const [showEdit, setShowEdit] = useState(null);
@@ -2917,7 +2917,7 @@ function PageEnquiries({ toast }) {
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             <FG label="Source"><select value={f.source} onChange={e=>setF({...f,source:e.target.value})} style={s.input}>{SOURCES.map(s=><option key={s}>{s}</option>)}</select></FG>
-            <FG label="Interested Plan"><select value={f.interest} onChange={e=>setF({...f,interest:e.target.value})} style={s.input}><option>Monthly</option><option>Quarterly</option><option>Yearly</option><option>Student Pack</option></select></FG>
+            <FG label="Interested Plan"><select value={f.interest} onChange={e=>setF({...f,interest:e.target.value})} style={s.input}>{plans.map(p=><option key={p.name}>{p.name}</option>)}</select></FG>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             <FG label="Assigned To"><select value={f.assignedTo} onChange={e=>setF({...f,assignedTo:e.target.value})} style={s.input}><option value="">-- Select --</option>{staff.map(s=><option key={s.id} value={s.name}>{s.name}</option>)}</select></FG>
@@ -3272,9 +3272,12 @@ function PagePT({ toast }) {
 }
 
 function PageSettings({ toast }) {
-  const { gymUser, gymProfile, setGymProfile, gymSettings, setGymSettings } = useGym();
+  const { gymUser, gymProfile, setGymProfile, gymSettings, setGymSettings, plans, setPlans } = useGym();
   const [tab,setTab]=useState('profile');
   const [autoBackup,setAutoBackup]=useState(true);
+  const [showPlanModal,setShowPlanModal]=useState(false);
+  const [editPlan,setEditPlan]=useState(null);
+  const [planForm,setPlanForm]=useState({name:'',days:'',price:'',pt:'None'});
 
   // Local copies for expenses form so they don't update live as you type
   const [exp, setExp] = useState({
@@ -3301,6 +3304,36 @@ function PageSettings({ toast }) {
   };
 
   const staffTotal = (gymSettings.rent||0)+(gymSettings.utilities||0)+(gymSettings.equipment||0)+(gymSettings.marketing||0)+(gymSettings.misc||0);
+
+  const openCreatePlan = () => { setPlanForm({name:'',days:'',price:'',pt:'None'}); setEditPlan(null); setShowPlanModal(true); };
+  const openEditPlan = (p,i) => { setPlanForm({name:p.name,days:String(p.days),price:String(p.price),pt:p.pt||'None'}); setEditPlan(i); setShowPlanModal(true); };
+
+  const savePlan = async () => {
+    if(!planForm.name.trim()) return toast('Plan name is required');
+    if(!planForm.days || parseInt(planForm.days)<=0) return toast('Duration must be > 0 days');
+    if(!planForm.price || parseInt(planForm.price)<=0) return toast('Price must be > 0');
+    const dup = plans.findIndex((p,i)=>p.name.toLowerCase()===planForm.name.trim().toLowerCase() && i!==editPlan);
+    if(dup>=0) return toast('A plan with this name already exists');
+    const plan = { name:planForm.name.trim(), days:parseInt(planForm.days), price:parseInt(planForm.price), pt:planForm.pt||'None' };
+    if(editPlan!==null) {
+      setPlans(prev=>prev.map((p,i)=>i===editPlan?plan:p));
+      toast(`Plan "${plan.name}" updated ✓`);
+      if(gymUser) supabase.rpc('upsert_gym_plan',{p_gym_id:gymUser.gym_id,p_name:plan.name,p_days:plan.days,p_price:plan.price,p_pt:plan.pt}).then(({error})=>{if(error)console.error('[Plan] update failed:',error.message);});
+    } else {
+      setPlans(prev=>[...prev,plan]);
+      toast(`Plan "${plan.name}" created ✓`);
+      if(gymUser) supabase.rpc('upsert_gym_plan',{p_gym_id:gymUser.gym_id,p_name:plan.name,p_days:plan.days,p_price:plan.price,p_pt:plan.pt}).then(({error})=>{if(error)console.error('[Plan] create failed:',error.message);});
+    }
+    setShowPlanModal(false);
+  };
+
+  const deletePlan = async (idx) => {
+    const p = plans[idx];
+    if(!confirm(`Delete plan "${p.name}"?`)) return;
+    setPlans(prev=>prev.filter((_,i)=>i!==idx));
+    toast(`Plan "${p.name}" deleted`);
+    if(gymUser) supabase.rpc('delete_gym_plan',{p_gym_id:gymUser.gym_id,p_name:p.name}).then(({error})=>{if(error)console.error('[Plan] delete failed:',error.message);});
+  };
 
   return (
     <div className="page-anim">
@@ -3399,20 +3432,44 @@ function PageSettings({ toast }) {
       )}
 
       {tab==='plans' && (
-        <div style={s.card()}>
-          <SH title="Membership Plans" right={<Btn variant="primary" size="sm" onClick={()=>toast('Create plan...')}>+ Create Plan</Btn>}/>
-          <div style={s.col(8)}>
-            {DEFAULT_PLANS.map(p=>(
-              <div key={p.name} style={{background:G.bg2,border:`1.5px solid ${G.border}`,borderRadius:9,padding:'12px 15px',display:'flex',alignItems:'center',gap:12}}>
-                <div style={{width:10,height:10,borderRadius:'50%',background:G.accent,flexShrink:0}}/>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:13,fontWeight:600,color:G.navy}}>{p.name}</div>
-                  <div style={{fontSize:11,color:G.text3}}>{p.days} days · PT: {p.pt}</div>
+        <div style={s.col(16)}>
+          <div style={s.card()}>
+            <SH title="Membership Plans" sub={`${plans.length} plan${plans.length!==1?'s':''}`} right={<Btn variant="primary" size="sm" onClick={openCreatePlan}>+ Create Plan</Btn>}/>
+            {plans.length===0 && <div style={{textAlign:'center',padding:32,color:G.text3,fontSize:13}}>No plans yet. Create your first plan to get started.</div>}
+            <div style={s.col(8)}>
+              {plans.map((p,i)=>(
+                <div key={p.name+i} className="plan-row" style={{background:G.bg2,border:`1.5px solid ${G.border}`,borderRadius:9,padding:'12px 15px',display:'flex',alignItems:'center',gap:12}}>
+                  <div style={{width:10,height:10,borderRadius:'50%',background:G.accent,flexShrink:0}}/>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:600,color:G.navy}}>{p.name}</div>
+                    <div style={{fontSize:11,color:G.text3}}>{p.days} days · PT: {p.pt||'None'}</div>
+                  </div>
+                  <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:14,fontWeight:700,color:G.accent,marginRight:8}}>₹{(p.price||0).toLocaleString()}</span>
+                  <Btn variant="ghost" size="sm" onClick={()=>openEditPlan(p,i)}>✏️</Btn>
+                  <Btn variant="ghost" size="sm" style={{color:'#dc2626'}} onClick={()=>deletePlan(i)}>🗑️</Btn>
                 </div>
-                <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:14,fontWeight:700,color:G.accent}}>₹{p.price.toLocaleString()}</span>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
+          <Modal open={showPlanModal} onClose={()=>setShowPlanModal(false)} title={editPlan!==null?'Edit Plan':'Create Plan'}>
+            <FG label="Plan Name"><Fi placeholder="e.g. Monthly, Quarterly, Yearly" value={planForm.name} onChange={e=>setPlanForm({...planForm,name:e.target.value})}/></FG>
+            <div className="rg-2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              <FG label="Duration (days)"><Fi type="number" placeholder="30" value={planForm.days} onChange={e=>setPlanForm({...planForm,days:e.target.value})}/></FG>
+              <FG label="Price (₹)"><Fi type="number" placeholder="1500" value={planForm.price} onChange={e=>setPlanForm({...planForm,price:e.target.value})}/></FG>
+            </div>
+            <FG label="PT Sessions"><Fs value={planForm.pt} onChange={e=>setPlanForm({...planForm,pt:e.target.value})}><option>None</option><option>4 Sessions</option><option>8 Sessions</option><option>12 Sessions</option><option>Unlimited</option></Fs></FG>
+            {planForm.name && planForm.days && planForm.price && (
+              <div style={{...s.inset(12),background:G.bg3,border:`1px solid ${G.border2}`,marginTop:8}}>
+                <div style={{fontSize:11,color:G.text3,marginBottom:4}}>Preview</div>
+                <div style={{fontSize:14,fontWeight:700,color:G.navy}}>{planForm.name} — ₹{parseInt(planForm.price||0).toLocaleString()} / {planForm.days} days</div>
+                <div style={{fontSize:11,color:G.text3,marginTop:2}}>PT: {planForm.pt||'None'}</div>
+              </div>
+            )}
+            <div style={{...s.flex(10),marginTop:14}}>
+              <Btn variant="primary" onClick={savePlan}>{editPlan!==null?'Save Changes':'Create Plan'}</Btn>
+              <Btn variant="ghost" onClick={()=>setShowPlanModal(false)}>Cancel</Btn>
+            </div>
+          </Modal>
         </div>
       )}
 
@@ -3952,6 +4009,7 @@ export default function App() {
   const [trainers,   setTrainersState]   = useState([]);
   const [gymProfile, setGymProfile]      = useState({});
   const [enquiries, setEnquiriesState]   = useState([]);
+  const [plans,     setPlansState]       = useState([]);
   const [pendingPayCount, setPendingPayCount] = useState(0);
   const [gymSettings, setGymSettings]   = useState({
     rent: 0, utilities: 0, equipment: 0,
@@ -3971,6 +4029,7 @@ export default function App() {
       setStaffState(data.staff);
       setTrainersState(data.trainers);
       setEnquiriesState(data.enquiries);
+      setPlansState(data.plans.length ? data.plans : DEFAULT_PLANS);
       setPendingPayCount(data.payments.filter(p => p.status === 'Pending').length);
       if (data.profile.gymName) setGymProfile(data.profile);
       setDataLoaded(true);
@@ -4009,6 +4068,9 @@ export default function App() {
   }, []);
   const setEnquiries = useCallback((updater) => {
     setEnquiriesState(typeof updater==='function'?updater:()=>updater);
+  }, []);
+  const setPlans = useCallback((updater) => {
+    setPlansState(typeof updater==='function'?updater:()=>updater);
   }, []);
 
   const [page, setPage]     = useState('dashboard');
@@ -4072,7 +4134,7 @@ export default function App() {
     setShowOnboarding(false);
   };
 
-  const gymCtxValue = { members, setMembers, attendance, addAttendance, staff, setStaff, trainers, setTrainers, enquiries, setEnquiries, gymProfile, setGymProfile, gymSettings, setGymSettings, gymUser, handleLogout };
+  const gymCtxValue = { members, setMembers, attendance, addAttendance, staff, setStaff, trainers, setTrainers, enquiries, setEnquiries, plans, setPlans, gymProfile, setGymProfile, gymSettings, setGymSettings, gymUser, handleLogout };
 
   const handleOnboardComplete = async ({ profile, members: newMembers, staff: newStaff }) => {
     if(newMembers.length) setMembersState(newMembers);

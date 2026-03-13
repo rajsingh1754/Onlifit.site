@@ -768,9 +768,9 @@ function PageDashboard({ toast }) {
   const thisMonth = today.getMonth();
   const thisYear = today.getFullYear();
   const todayPayments = payments.filter(p=>p.date===todayStr);
-  const todayCollection = todayPayments.reduce((a,p)=>a+(p.amount||0),0);
+  const todayCollection = todayPayments.reduce((a,p)=>a+(parseFloat(p.amount)||0),0);
   const monthPayments = payments.filter(p=>{try{const d=new Date(p.created_at||p.date);return d.getMonth()===thisMonth&&d.getFullYear()===thisYear;}catch{return false;}});
-  const monthRevenue = monthPayments.reduce((a,p)=>a+(p.amount||0),0);
+  const monthRevenue = monthPayments.reduce((a,p)=>a+(parseFloat(p.amount)||0),0);
   const monthlyTarget = gymSettings.monthlyTarget || 1000000;
   const targetPct = monthlyTarget>0 ? Math.min(Math.round((monthRevenue/monthlyTarget)*100),100) : 0;
 
@@ -783,7 +783,7 @@ function PageDashboard({ toast }) {
   const months = 'JFMAMJJASOND'.split('');
   const revData = months.map((_,i)=>{
     const mPayments = payments.filter(p=>{try{const d=new Date(p.created_at||p.date);return d.getMonth()===i&&d.getFullYear()===thisYear;}catch{return false;}});
-    return {v:Math.max(mPayments.reduce((a,p)=>a+(p.amount||0),0)/1000,0),l:months[i]};
+    return {v:Math.max(mPayments.reduce((a,p)=>a+(parseFloat(p.amount)||0),0)/1000,0),l:months[i]};
   });
   // If no payment data, show placeholder bars
   const hasRevData = revData.some(d=>d.v>0);
@@ -1800,17 +1800,17 @@ function PageRevenue({ toast }) {
   // Real annual revenue chart from payments
   const annual = months.map((_,i)=>{
     const mPay = payments.filter(p=>{try{const d=new Date(p.created_at||p.date);return d.getMonth()===i&&d.getFullYear()===thisYear;}catch{return false;}});
-    return {v:Math.max(mPay.reduce((a,p)=>a+(p.amount||0),0)/1000,0),l:months[i]};
+    return {v:Math.max(mPay.reduce((a,p)=>a+(parseFloat(p.amount)||0),0)/1000,0),l:months[i]};
   });
   const hasAnnualData = annual.some(d=>d.v>0);
   const annualChart = hasAnnualData ? annual : months.map((_,i)=>({v:0,l:months[i],dim:true}));
 
   // Revenue calculations from real payments
   const monthPayments = payments.filter(p=>{try{const d=new Date(p.created_at||p.date);return d.getMonth()===thisMonth&&d.getFullYear()===thisYear;}catch{return false;}});
-  const monthRevenue  = monthPayments.reduce((a,p)=>a+(p.amount||0),0);
+  const monthRevenue  = monthPayments.reduce((a,p)=>a+(parseFloat(p.amount)||0),0);
   const ptRevenue     = trainers.reduce((a,t)=>a+(t.revenue||0),0);
   const totalRevenue  = monthRevenue + ptRevenue;
-  const annualRevenue = payments.filter(p=>{try{return new Date(p.created_at||p.date).getFullYear()===thisYear;}catch{return false;}}).reduce((a,p)=>a+(p.amount||0),0);
+  const annualRevenue = payments.filter(p=>{try{return new Date(p.created_at||p.date).getFullYear()===thisYear;}catch{return false;}}).reduce((a,p)=>a+(parseFloat(p.amount)||0),0);
 
   // Expense calculations -- read from Settings
   const staffSalary   = staff.reduce((a,s)=>a+(parseInt(s.salary)||0),0);
@@ -2070,10 +2070,10 @@ function PageFees({ toast }) {
   return (
     <div className="page-anim">
       <div className="rg-4" style={{marginBottom:16}}>
-        <StatCard label="Today's Collection" value={`₹${payments.filter(p=>p.date===today).reduce((a,p)=>a+(p.amount||0),0).toLocaleString()}`} icon="💰"/>
+        <StatCard label="Today's Collection" value={`₹${payments.filter(p=>p.date===today).reduce((a,p)=>a+(parseFloat(p.amount)||0),0).toLocaleString()}`} icon="💰"/>
         <StatCard label="This Month" value={`${payments.length} payments`} icon="✅"/>
         <StatCard label="Overdue Members" value={String(members.filter(m=>m.status==='Expired').length)} dim icon="⚠️"/>
-        <StatCard label="Avg. Ticket" value={payments.length?`₹${Math.round(payments.reduce((a,p)=>a+(p.amount||0),0)/payments.length).toLocaleString()}`:'--'} icon="🔄"/>
+        <StatCard label="Avg. Ticket" value={payments.length?`₹${Math.round(payments.reduce((a,p)=>a+(parseFloat(p.amount)||0),0)/payments.length).toLocaleString()}`:'--'} icon="🔄"/>
       </div>
       <div className="rg-2" style={{marginBottom:16}}>
         <div style={s.card()}>
@@ -2122,7 +2122,7 @@ function PageFees({ toast }) {
               <td style={{padding:'9px 13px',fontSize:13,fontWeight:600,color:G.navy}}>{p.member_name||p.member||'--'}</td>
               <td style={{padding:'9px 13px',...s.mono,fontSize:11,color:G.text3}}>{p.invoice||p.inv||'--'}</td>
               <td style={{padding:'9px 13px',fontSize:12,color:G.text2}}>{p.plan}</td>
-              <td style={{padding:'9px 13px',fontSize:13,fontWeight:700,color:G.accent}}>₹{(p.amount||0).toLocaleString()}</td>
+              <td style={{padding:'9px 13px',fontSize:13,fontWeight:700,color:G.accent}}>₹{(parseFloat(p.amount)||0).toLocaleString()}</td>
               <td style={{padding:'9px 13px',fontSize:12,color:G.text2}}>{p.mode}</td>
               <td style={{padding:'9px 13px',fontSize:12,color:G.text2}}>{p.date}</td>
               <td style={{padding:'9px 13px'}}><SBadge s={p.status==='Paid'?'Active':'Expired'}/></td>

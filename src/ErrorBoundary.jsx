@@ -1,4 +1,5 @@
 import { Component } from "react";
+import { captureError } from "./sentry.js";
 
 export default class ErrorBoundary extends Component {
   state = { hasError: false, error: null };
@@ -8,7 +9,7 @@ export default class ErrorBoundary extends Component {
   }
 
   componentDidCatch(error, info) {
-    console.error("[ErrorBoundary]", error, info?.componentStack);
+    captureError(error, { componentStack: info?.componentStack });
   }
 
   handleRetry = () => {

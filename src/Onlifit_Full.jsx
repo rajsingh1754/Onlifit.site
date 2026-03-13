@@ -3,6 +3,7 @@ import jsQR from "jsqr";
 import { QRCodeCanvas } from "qrcode.react";
 import { jsPDF } from "jspdf";
 import { supabase } from "./supabase";
+import { setGymContext, captureError } from "./sentry.js";
 
 // ─── PALETTE ──────────────────────────────────────────────────────────────────
 const G = {
@@ -3802,6 +3803,7 @@ export default function App() {
           if (data) {
             const acct = { gym_id: data.gym_id, user_id: data.user_id, email: data.email, name: data.name, gymName: data.gym_name, city: data.city, role: data.role, isNew: data.is_new };
             setGymUser(acct);
+            setGymContext(acct.gym_id, acct.gymName);
             localStorage.setItem('onlifit_gym_user', JSON.stringify(acct));
             if (data.is_new) setShowOnboarding(true);
           }
@@ -3940,6 +3942,7 @@ export default function App() {
 
   const handleLogin = async (acct) => {
     setGymUser(acct);
+    setGymContext(acct.gym_id, acct.gymName);
     localStorage.setItem('onlifit_gym_user', JSON.stringify(acct));
     if(acct.isNew) setShowOnboarding(true);
   };

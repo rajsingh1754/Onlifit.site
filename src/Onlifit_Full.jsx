@@ -2217,6 +2217,8 @@ function PageDiscounts({ toast }) {
   const [sendModal, setSendModal] = useState(null);
   const [sendTarget, setSendTarget] = useState('members');
   const [selectedIds, setSelectedIds] = useState([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [newCoupon, setNewCoupon] = useState({code:'',type:'pct',val:'',plan:'All Plans',max:'',expiry:'',cat:'General'});
 
   const gymName = gymUser?.gymName || 'our gym';
 
@@ -2258,12 +2260,29 @@ function PageDiscounts({ toast }) {
 
   const toggleId = (id) => setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
+  const createCoupon = () => {
+    const code = newCoupon.code.trim().toUpperCase().replace(/\s/g,'');
+    if(!code){toast('Coupon code is required');return;}
+    if(coupons.find(c=>c.code===code)){toast('Coupon code already exists');return;}
+    const val = parseInt(newCoupon.val);
+    if(!val||val<=0){toast('Enter a valid discount value');return;}
+    if(newCoupon.type==='pct'&&val>100){toast('Percentage cannot exceed 100');return;}
+    if(!newCoupon.expiry){toast('Expiry date is required');return;}
+    const expiryLabel = new Date(newCoupon.expiry).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    const created = {code,type:newCoupon.type,val,plan:newCoupon.plan,uses:0,max:parseInt(newCoupon.max)||null,expiry:expiryLabel,cat:newCoupon.cat};
+    setCoupons(prev=>[created,...prev]);
+    VALID_COUPONS[code]={type:newCoupon.type,val};
+    setShowCreate(false);
+    setNewCoupon({code:'',type:'pct',val:'',plan:'All Plans',max:'',expiry:'',cat:'General'});
+    toast(`✅ Coupon ${code} created`);
+  };
+
   const recipientList = sendTarget === 'members' ? members : enquiries;
 
   return (
     <div className="page-anim">
       <div className="rg-4" style={{marginBottom:16}}><StatCard label="Active Coupons" value={String(coupons.length)} icon="🏷️"/><StatCard label="Total Redeemed" value={String(coupons.reduce((a,c)=>a+c.uses,0))} icon="✅"/><StatCard label="Discount Given" value="₹18,450" dim icon="💸"/><StatCard label="Active Offers" value="2" dim icon="🎁"/></div>
-      <div style={s.card()}><SH title="Discount Coupons" right={<Btn variant="primary" size="sm" onClick={()=>toast('Create coupon modal...')}>+ Create Coupon</Btn>}/><div style={s.col(8)}>{coupons.map((c,i)=><div key={c.code} style={{background:G.bg2,border:`1.5px dashed ${G.border2}`,borderRadius:10,padding:'12px 14px',...s.flex(12)}}><div style={{width:36,height:36,borderRadius:8,background:G.bg4,border:`1px solid ${G.accentL}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>🏷️</div><div style={{flex:1}}><div style={{...s.mono,fontSize:14,fontWeight:700,color:G.accent}}>{c.code}</div><div style={{fontSize:11,color:G.text3,marginTop:2}}>{c.type==='pct'?c.val+'% off':'₹'+c.val+' off'} · Until {c.expiry}</div><div style={{...s.flex(6),marginTop:4}}><Badge bright>{c.cat}</Badge><span style={{fontSize:11,color:G.text2}}>{c.uses}{c.max?'/'+c.max:''} uses</span></div></div><div style={s.col(5)}><Btn variant="ghost" size="xs" onClick={()=>{setSendModal(c);setSendTarget('members');setSelectedIds([]);}}>📤 Send</Btn><Btn variant="ghost" size="xs" onClick={()=>toast(`Copied: ${c.code}`)}>Copy</Btn><Btn variant="danger" size="xs" onClick={()=>{setCoupons(p=>p.filter((_,j)=>j!==i));toast('Deleted');}}>Delete</Btn></div></div>)}</div></div>
+      <div style={s.card()}><SH title="Discount Coupons" right={<Btn variant="primary" size="sm" onClick={()=>setShowCreate(true)}>+ Create Coupon</Btn>}/><div style={s.col(8)}>{coupons.map((c,i)=><div key={c.code} style={{background:G.bg2,border:`1.5px dashed ${G.border2}`,borderRadius:10,padding:'12px 14px',...s.flex(12)}}><div style={{width:36,height:36,borderRadius:8,background:G.bg4,border:`1px solid ${G.accentL}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>🏷️</div><div style={{flex:1}}><div style={{...s.mono,fontSize:14,fontWeight:700,color:G.accent}}>{c.code}</div><div style={{fontSize:11,color:G.text3,marginTop:2}}>{c.type==='pct'?c.val+'% off':'₹'+c.val+' off'} · Until {c.expiry}</div><div style={{...s.flex(6),marginTop:4}}><Badge bright>{c.cat}</Badge><span style={{fontSize:11,color:G.text2}}>{c.uses}{c.max?'/'+c.max:''} uses</span></div></div><div style={s.col(5)}><Btn variant="ghost" size="xs" onClick={()=>{setSendModal(c);setSendTarget('members');setSelectedIds([]);}}>📤 Send</Btn><Btn variant="ghost" size="xs" onClick={()=>toast(`Copied: ${c.code}`)}>Copy</Btn><Btn variant="danger" size="xs" onClick={()=>{setCoupons(p=>p.filter((_,j)=>j!==i));toast('Deleted');}}>Delete</Btn></div></div>)}</div></div>
 
       {/* Send Coupon Modal */}
       {sendModal && (
@@ -2312,6 +2331,28 @@ function PageDiscounts({ toast }) {
           </div>
         </Modal>
       )}
+
+      {/* Create Coupon Modal */}
+      <Modal open={showCreate} onClose={()=>setShowCreate(false)} title="Create Coupon" width={480}>
+        <div className="rg-2">
+          <FG label="Coupon Code *"><Fi placeholder="e.g. SUMMER25" value={newCoupon.code} onChange={e=>setNewCoupon({...newCoupon,code:e.target.value.toUpperCase()})} style={{...s.mono,textTransform:'uppercase'}}/></FG>
+          <FG label="Category"><Fs value={newCoupon.cat} onChange={e=>setNewCoupon({...newCoupon,cat:e.target.value})}><option>General</option><option>New Join</option><option>Referral</option><option>Festival</option><option>Loyalty</option></Fs></FG>
+        </div>
+        <div className="rg-2">
+          <FG label="Discount Type"><Fs value={newCoupon.type} onChange={e=>setNewCoupon({...newCoupon,type:e.target.value})}><option value="pct">Percentage (%)</option><option value="flat">Flat Amount (₹)</option></Fs></FG>
+          <FG label={newCoupon.type==='pct'?'Discount % *':'Discount ₹ *'}><Fi type="number" placeholder={newCoupon.type==='pct'?'e.g. 15':'e.g. 500'} value={newCoupon.val} onChange={e=>setNewCoupon({...newCoupon,val:e.target.value})}/></FG>
+        </div>
+        <div className="rg-2">
+          <FG label="Applies To"><Fs value={newCoupon.plan} onChange={e=>setNewCoupon({...newCoupon,plan:e.target.value})}><option>All Plans</option><option>Monthly</option><option>Quarterly</option><option>Yearly</option></Fs></FG>
+          <FG label="Max Uses (optional)"><Fi type="number" placeholder="Unlimited if empty" value={newCoupon.max} onChange={e=>setNewCoupon({...newCoupon,max:e.target.value})}/></FG>
+        </div>
+        <FG label="Expiry Date *"><Fi type="date" value={newCoupon.expiry} onChange={e=>setNewCoupon({...newCoupon,expiry:e.target.value})}/></FG>
+        {newCoupon.code&&newCoupon.val&&<div style={{background:G.bg3,border:`1.5px dashed ${G.accentL}`,borderRadius:9,padding:14,marginTop:8,...s.flex(12)}}>
+          <div style={{width:36,height:36,borderRadius:8,background:G.bg4,border:`1px solid ${G.accentL}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>🏷️</div>
+          <div><div style={{...s.mono,fontSize:15,fontWeight:700,color:G.accent}}>{newCoupon.code.toUpperCase()}</div><div style={{fontSize:12,color:G.text2,marginTop:2}}>{newCoupon.type==='pct'?newCoupon.val+'% off':'₹'+newCoupon.val+' off'} · {newCoupon.plan}{newCoupon.expiry?` · Until ${new Date(newCoupon.expiry).toLocaleDateString('en-US',{month:'short',day:'numeric'})}`:''}</div></div>
+        </div>}
+        <MFooter onCancel={()=>setShowCreate(false)} onSave={createCoupon} saveLabel="✅ Create Coupon"/>
+      </Modal>
     </div>
   );
 }

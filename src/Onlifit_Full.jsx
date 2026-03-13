@@ -3340,6 +3340,11 @@ function PageSettings({ toast }) {
               </div>
             ))}
           </div>
+          {/* Sentry verification — remove after confirming Sentry works */}
+          <div style={{...s.card(),marginTop:12,borderColor:'#fecaca'}}>
+            <SH title="🔧 Sentry Test" sub="Remove after verification"/>
+            <button onClick={() => { throw new Error('Sentry test from Onlifit Settings'); }} style={{padding:'8px 16px',borderRadius:8,background:'#dc2626',color:'#fff',fontWeight:600,fontSize:13,border:'none',cursor:'pointer'}}>🧪 Send Test Error to Sentry</button>
+          </div>
         </div>
       )}
     </div>

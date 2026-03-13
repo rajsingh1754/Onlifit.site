@@ -2081,21 +2081,16 @@ function PageFees({ toast }) {
       doc.text(val, rEdge - 5, y, { align:'right' });
     });
 
-    // Separator before total — big gap
-    y += 18;
-    doc.setDrawColor(22,163,74); doc.setLineWidth(0.8);
-    doc.line(ml, y, rEdge, y);
-
-    // Total — big gap below line
-    y += 16;
+    // Total row — green background box
+    y += 20;
+    doc.setFillColor(236, 253, 243);
+    doc.setDrawColor(22, 163, 74);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(ml, y, rEdge - ml, 16, 3, 3, 'FD');
     doc.setFont('helvetica','bold'); doc.setFontSize(14); doc.setTextColor(22,163,74);
-    doc.text('TOTAL', ml + 5, y);
-    doc.text(`Rs ${total.toLocaleString()}`, rEdge - 5, y, { align:'right' });
-
-    // Bottom line — big gap below total
-    y += 10;
-    doc.setDrawColor(200); doc.setLineWidth(0.2);
-    doc.line(ml, y, rEdge, y);
+    doc.text('TOTAL', ml + 8, y + 11);
+    doc.text(`Rs ${total.toLocaleString()}`, rEdge - 8, y + 11, { align:'right' });
+    y += 16;
 
     // Payment mode
     y += 16;

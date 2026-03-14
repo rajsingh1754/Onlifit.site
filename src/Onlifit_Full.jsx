@@ -843,6 +843,18 @@ function PageDashboard({ toast }) {
         <StatCard label="Expired Members" value={String(expiredMembers)} sub="need renewal" dim trend={expiredMembers>0?{up:false,label:`${expiredMembers} overdue`}:undefined} icon="⚠️"/>
         <StatCard label="Today Check-ins" value={String(todayAtt.length)} sub={`${insideNow.length} still inside`} icon="📅"/>
       </div>
+      <div className="mob-grid-2" style={{...s.grid(4),marginBottom:16}}>
+        <StatCard label="Pending Renewals" value={String(pendingDues)} sub={`${pendingDues} expired members`} dim icon="🔴"/>
+        <StatCard label="Month Revenue" value={monthRevenue>0?`₹${(monthRevenue/100000).toFixed(1)}L`:'--'} sub={`${monthPayments.length} payments`} icon="📊"/>
+        <div style={{...s.card(),position:'relative',overflow:'hidden'}}>
+          <div style={{position:'absolute',top:0,left:0,right:0,height:3,background:`linear-gradient(90deg,${G.accent},#4ade80)`}}/>
+          <div style={{fontSize:11,color:G.text3,fontWeight:700,textTransform:'uppercase',marginBottom:8}}>Monthly Target</div>
+          <div style={{fontSize:28,fontWeight:800,color:G.navy}}>₹{(monthlyTarget/100000).toFixed(0)}L</div>
+          <Progress pct={targetPct}/>
+          <div style={{fontSize:11,color:G.text3,marginTop:6}}>{targetPct}% achieved · ₹{((monthlyTarget-monthRevenue)/100000).toFixed(1)}L remaining</div>
+        </div>
+        <StatCard label="Avg Daily Attendance" value={String(todayAtt.length||Math.round(attendance.length/Math.max(new Set(attendance.map(a=>a.date)).size,1)))} sub="Based on attendance data" icon="📈"/>
+      </div>
 
       {/* ── LIVE ATTENDANCE PORTAL ─────────────── */}
       <div style={{...s.card(16),marginBottom:16,border:`1.5px solid ${insideNow.length>0?G.border2:G.border}`,background:insideNow.length>0?G.bg3:G.bg}}>
@@ -948,18 +960,6 @@ function PageDashboard({ toast }) {
             ))}
           </div>
         </div>
-      </div>
-      <div className="mob-grid-2" style={s.grid(4)}>
-        <StatCard label="Pending Renewals" value={String(pendingDues)} sub={`${pendingDues} expired members`} dim icon="🔴"/>
-        <StatCard label="Month Revenue" value={monthRevenue>0?`₹${(monthRevenue/100000).toFixed(1)}L`:'--'} sub={`${monthPayments.length} payments`} icon="📊"/>
-        <div style={{...s.card(),position:'relative',overflow:'hidden'}}>
-          <div style={{position:'absolute',top:0,left:0,right:0,height:3,background:`linear-gradient(90deg,${G.accent},#4ade80)`}}/>
-          <div style={{fontSize:11,color:G.text3,fontWeight:700,textTransform:'uppercase',marginBottom:8}}>Monthly Target</div>
-          <div style={{fontSize:28,fontWeight:800,color:G.navy}}>₹{(monthlyTarget/100000).toFixed(0)}L</div>
-          <Progress pct={targetPct}/>
-          <div style={{fontSize:11,color:G.text3,marginTop:6}}>{targetPct}% achieved · ₹{((monthlyTarget-monthRevenue)/100000).toFixed(1)}L remaining</div>
-        </div>
-        <StatCard label="Avg Daily Attendance" value={String(todayAtt.length||Math.round(attendance.length/Math.max(new Set(attendance.map(a=>a.date)).size,1)))} sub="Based on attendance data" icon="📈"/>
       </div>
     </div>
   );

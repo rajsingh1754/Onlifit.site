@@ -263,7 +263,7 @@ async function supaLoadGymData(gymId) {
   const mapAttendance = r => ({ id:r.id, memberId:r.member_id, memberName:r.member_name, init:r.initials, checkIn:r.check_in, date:r.date, trainer:r.trainer, method:r.method, status:r.status });
   const mapStaff = r => ({ name:r.name, init:r.initials, id:r.id, role:r.role, branch:r.branch, members:r.members_count, present:r.present, salary:r.salary, phone:r.phone, email:r.email, joined:r.joined, qr:r.qr, shift:r.shift||'Full Day' });
   const mapTrainer = r => ({ name:r.name, init:r.initials, id:r.id, specialization:r.specialization, experience:r.experience, members:r.members||[], sessions:r.sessions, rating:r.rating, commission:r.commission, revenue:r.revenue, certifications:r.certifications, qr:r.qr });
-  const mapPlan = r => ({ name:r.name, days:r.days, price:r.price, pt:r.pt });
+  const mapPlan = r => ({ name:r.name, days:r.days, price:r.price, pt:r.pt, type:r.type||'Membership' });
   const mapProfile = r => r ? { gymName:r.gym_name, tagline:r.tagline, address:r.address, city:r.city, phone:r.phone, gstin:r.gstin, openTime:r.open_time, closeTime:r.close_time } : {};
   const mapEnquiry = r => ({ id:r.id, name:r.name, phone:r.phone, email:r.email, source:r.source, interest:r.interest, status:r.status, assignedTo:r.assigned_to, notes:r.notes, followUpDate:r.follow_up_date, trialDate:r.trial_date, convertedMemberId:r.converted_member_id, createdAt:r.created_at, updatedAt:r.updated_at });
   return {
@@ -279,7 +279,7 @@ async function supaLoadGymData(gymId) {
 }
 
 // ─── DEFAULT PLANS & COUPONS ──────────────────────────────────────────────────
-const DEFAULT_PLANS = [{name:'Monthly',days:30,price:1500,pt:'None'},{name:'Quarterly',days:90,price:4000,pt:'None'},{name:'Yearly',days:365,price:14000,pt:'4 Sessions'},{name:'Student Pack',days:30,price:999,pt:'None'}];
+const DEFAULT_PLANS = [{name:'Monthly',days:30,price:1500,pt:'None',type:'Membership'},{name:'Quarterly',days:90,price:4000,pt:'None',type:'Membership'},{name:'Yearly',days:365,price:14000,pt:'4 Sessions',type:'Membership'},{name:'Student Pack',days:30,price:999,pt:'None',type:'Membership'}];
 const VALID_COUPONS = {IRON10:{type:'pct',val:10},NEWJOIN20:{type:'pct',val:20},REFER500:{type:'flat',val:500},SUMMER15:{type:'pct',val:15}};
 
 // ─── COMPONENTS ───────────────────────────────────────────────────────────────
@@ -2030,7 +2030,9 @@ function PageFees({ toast }) {
   const disc=cc?(cc.type==='pct'?Math.round(baseEx*cc.val/100):Math.min(cc.val,base)):0;
   const total=base-disc;
   const handleCoupon=v=>{setCoupon(v);const vc=VALID_COUPONS[v.toUpperCase()];if(!v)setCouponMsg(null);else if(vc)setCouponMsg({ok:true,msg:`✓ ${vc.type==='pct'?vc.val+'% off':'₹'+vc.val+' off'} applied!`});else setCouponMsg({ok:false,msg:'Invalid coupon code'});};
-  const planName = plans.find(p=>String(p.price)===planVal)?.name || 'Membership';
+  const selectedPlan = plans.find(p=>String(p.price)===planVal);
+  const planName = selectedPlan?.name || 'Membership';
+  const planType = selectedPlan?.type || 'Membership';
   const invNo = `INV-${new Date().getFullYear()}-${String(payments.length+1).padStart(4,'0')}`;
   const today = new Date().toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'});
 
@@ -2140,11 +2142,11 @@ function PageFees({ toast }) {
   const recordPayment = async (mode, txnId) => {
     const paymentData = {
       gym_id: gymUser.gym_id, member_id: selectedMember?.id||null, member_name: selectedMember?.name||'Walk-in',
-      invoice: invNo, plan: planName, amount: total, mode, date: today, status: 'Paid', txn_id: txnId||null,
+      invoice: invNo, plan: `${planName}${planType==='Personal Training'?' (PT)':''}`, amount: total, mode, date: today, status: 'Paid', txn_id: txnId||null,
     };
     const { error } = await supabase.rpc('insert_payment', {
       p_gym_id: gymUser.gym_id, p_member_id: selectedMember?.id||'', p_member_name: selectedMember?.name||'Walk-in',
-      p_invoice: invNo, p_plan: planName, p_amount: String(total), p_mode: mode, p_date: today, p_status: 'Paid', p_txn_id: txnId||'',
+      p_invoice: invNo, p_plan: `${planName}${planType==='Personal Training'?' (PT)':''}`, p_amount: String(total), p_mode: mode, p_date: today, p_status: 'Paid', p_txn_id: txnId||'',
     });
     if(error) toast('⚠️ Payment save failed locally');
     else { setPayments(prev=>[paymentData,...prev]); toast(`✅ ₹${total.toLocaleString()} received from ${selectedMember?.name||'Walk-in'}`); }
@@ -2181,7 +2183,7 @@ function PageFees({ toast }) {
             <FG label="Mode"><Fs value={payMode} onChange={e=>setPayMode(e.target.value)}><option>UPI / Razorpay</option><option>Cash</option><option>Card</option><option>EMI</option></Fs></FG>
           </div>
           <div className="rg-2">
-            <FG label="Plan"><Fs value={planVal} onChange={e=>setPlanVal(e.target.value)}>{plans.map(p=><option key={p.name} value={String(p.price)}>{p.name} -- ₹{(p.price||0).toLocaleString()}</option>)}</Fs></FG>
+            <FG label="Plan"><Fs value={planVal} onChange={e=>setPlanVal(e.target.value)}>{plans.map(p=><option key={p.name} value={String(p.price)}>{p.type==='Personal Training'?'🏋️ ':''}{p.name} -- ₹{(p.price||0).toLocaleString()}</option>)}</Fs></FG>
             <FG label="Coupon"><Fi placeholder="e.g. IRON10" value={coupon} onChange={e=>handleCoupon(e.target.value)}/></FG>
           </div>
           {couponMsg&&<div style={{fontSize:12,marginBottom:10,fontWeight:600,color:couponMsg.ok?G.accent:'#dc2626',padding:'7px 12px',borderRadius:7,background:couponMsg.ok?G.bg3:'#fef2f2',border:`1px solid ${couponMsg.ok?G.accentL:'#fecaca'}`}}>{couponMsg.msg}</div>}
@@ -2195,7 +2197,7 @@ function PageFees({ toast }) {
               <div style={{textAlign:'right',fontSize:11,color:G.text3}}><div style={{...s.mono,color:G.navy,fontWeight:600}}>#{invNo}</div><div>{today}</div></div>
             </div>
             {selectedMember&&<div style={{fontSize:12,color:G.text2,marginBottom:10,padding:'6px 0',borderBottom:`1px solid ${G.border}`}}>Bill to: <span style={{fontWeight:600,color:G.navy}}>{selectedMember.name}</span> ({selectedMember.id})</div>}
-            {[['Plan',planName],['Base Amount',`₹${baseEx.toLocaleString()}`],['GST (18%)',`₹${gst.toLocaleString()}`]].map(([k,v])=><div key={k} style={{...s.flex(0),justifyContent:'space-between',padding:'7px 0',borderBottom:`1px solid ${G.border}`,fontSize:13}}><span style={{color:G.text2}}>{k}</span><span style={{fontWeight:600,color:G.navy}}>{v}</span></div>)}
+            {[['Plan',`${planName}${planType==='Personal Training'?' (PT)':''}`],['Base Amount',`₹${baseEx.toLocaleString()}`],['GST (18%)',`₹${gst.toLocaleString()}`]].map(([k,v])=><div key={k} style={{...s.flex(0),justifyContent:'space-between',padding:'7px 0',borderBottom:`1px solid ${G.border}`,fontSize:13}}><span style={{color:G.text2}}>{k}</span><span style={{fontWeight:600,color:G.navy}}>{v}</span></div>)}
             {disc>0&&<div style={{...s.flex(0),justifyContent:'space-between',padding:'7px 0',borderBottom:`1px solid ${G.border}`,fontSize:13}}><span style={{color:G.text2}}>Discount</span><span style={{color:G.accent,fontWeight:700}}>−₹{disc.toLocaleString()}</span></div>}
             <div style={{...s.flex(0),justifyContent:'space-between',padding:'10px 0 0',fontWeight:800,fontSize:15,color:G.accent,borderTop:`2px solid ${G.border}`,marginTop:4}}><span>Total</span><span>₹{total.toLocaleString()}</span></div>
             <Btn variant="ghost" style={{width:'100%',marginTop:10,fontSize:12}} onClick={()=>generatePDF({memberName:selectedMember?.name,memberId:selectedMember?.id,mode:payMode})}>↓ Download PDF</Btn>
@@ -3320,7 +3322,7 @@ function PageSettings({ toast }) {
   const [autoBackup,setAutoBackup]=useState(true);
   const [showPlanModal,setShowPlanModal]=useState(false);
   const [editPlan,setEditPlan]=useState(null);
-  const [planForm,setPlanForm]=useState({name:'',days:'',price:'',pt:'None'});
+  const [planForm,setPlanForm]=useState({name:'',days:'',price:'',pt:'None',type:'Membership'});
 
   // Local copies for expenses form so they don't update live as you type
   const [exp, setExp] = useState({
@@ -3348,8 +3350,8 @@ function PageSettings({ toast }) {
 
   const staffTotal = (gymSettings.rent||0)+(gymSettings.utilities||0)+(gymSettings.equipment||0)+(gymSettings.marketing||0)+(gymSettings.misc||0);
 
-  const openCreatePlan = () => { setPlanForm({name:'',days:'',price:'',pt:'None'}); setEditPlan(null); setShowPlanModal(true); };
-  const openEditPlan = (p,i) => { setPlanForm({name:p.name,days:String(p.days),price:String(p.price),pt:p.pt||'None'}); setEditPlan(i); setShowPlanModal(true); };
+  const openCreatePlan = () => { setPlanForm({name:'',days:'',price:'',pt:'None',type:'Membership'}); setEditPlan(null); setShowPlanModal(true); };
+  const openEditPlan = (p,i) => { setPlanForm({name:p.name,days:String(p.days),price:String(p.price),pt:p.pt||'None',type:p.type||'Membership'}); setEditPlan(i); setShowPlanModal(true); };
 
   const savePlan = async () => {
     if(!planForm.name.trim()) return toast('Plan name is required');
@@ -3357,15 +3359,15 @@ function PageSettings({ toast }) {
     if(!planForm.price || parseInt(planForm.price)<=0) return toast('Price must be > 0');
     const dup = plans.findIndex((p,i)=>p.name.toLowerCase()===planForm.name.trim().toLowerCase() && i!==editPlan);
     if(dup>=0) return toast('A plan with this name already exists');
-    const plan = { name:planForm.name.trim(), days:parseInt(planForm.days), price:parseInt(planForm.price), pt:planForm.pt||'None' };
+    const plan = { name:planForm.name.trim(), days:parseInt(planForm.days), price:parseInt(planForm.price), pt:planForm.pt||'None', type:planForm.type||'Membership' };
     if(editPlan!==null) {
       setPlans(prev=>prev.map((p,i)=>i===editPlan?plan:p));
       toast(`Plan "${plan.name}" updated ✓`);
-      if(gymUser) supabase.rpc('upsert_gym_plan',{p_gym_id:gymUser.gym_id,p_name:plan.name,p_days:plan.days,p_price:plan.price,p_pt:plan.pt}).then(({error})=>{if(error)console.error('[Plan] update failed:',error.message);});
+      if(gymUser) supabase.rpc('upsert_gym_plan',{p_gym_id:gymUser.gym_id,p_name:plan.name,p_days:plan.days,p_price:plan.price,p_pt:plan.pt,p_type:plan.type}).then(({error})=>{if(error)console.error('[Plan] update failed:',error.message);});
     } else {
       setPlans(prev=>[...prev,plan]);
       toast(`Plan "${plan.name}" created ✓`);
-      if(gymUser) supabase.rpc('upsert_gym_plan',{p_gym_id:gymUser.gym_id,p_name:plan.name,p_days:plan.days,p_price:plan.price,p_pt:plan.pt}).then(({error})=>{if(error)console.error('[Plan] create failed:',error.message);});
+      if(gymUser) supabase.rpc('upsert_gym_plan',{p_gym_id:gymUser.gym_id,p_name:plan.name,p_days:plan.days,p_price:plan.price,p_pt:plan.pt,p_type:plan.type}).then(({error})=>{if(error)console.error('[Plan] create failed:',error.message);});
     }
     setShowPlanModal(false);
   };
@@ -3477,10 +3479,10 @@ function PageSettings({ toast }) {
       {tab==='plans' && (
         <div style={s.col(16)}>
           <div style={s.card()}>
-            <SH title="Membership Plans" sub={`${plans.length} plan${plans.length!==1?'s':''}`} right={<Btn variant="primary" size="sm" onClick={openCreatePlan}>+ Create Plan</Btn>}/>
-            {plans.length===0 && <div style={{textAlign:'center',padding:32,color:G.text3,fontSize:13}}>No plans yet. Create your first plan to get started.</div>}
+            <SH title="Membership Plans" sub={`${plans.filter(p=>p.type!=='Personal Training').length} plan${plans.filter(p=>p.type!=='Personal Training').length!==1?'s':''}`} right={<Btn variant="primary" size="sm" onClick={openCreatePlan}>+ Create Plan</Btn>}/>
+            {plans.filter(p=>p.type!=='Personal Training').length===0 && <div style={{textAlign:'center',padding:24,color:G.text3,fontSize:13}}>No membership plans yet.</div>}
             <div style={s.col(8)}>
-              {plans.map((p,i)=>(
+              {plans.map((p,i)=>p.type==='Personal Training'?null:(
                 <div key={p.name+i} className="plan-row" style={{background:G.bg2,border:`1.5px solid ${G.border}`,borderRadius:9,padding:'12px 15px',display:'flex',alignItems:'center',gap:12}}>
                   <div style={{width:10,height:10,borderRadius:'50%',background:G.accent,flexShrink:0}}/>
                   <div style={{flex:1}}>
@@ -3494,18 +3496,37 @@ function PageSettings({ toast }) {
               ))}
             </div>
           </div>
+          <div style={s.card()}>
+            <SH title="Personal Training Plans" sub={`${plans.filter(p=>p.type==='Personal Training').length} PT plan${plans.filter(p=>p.type==='Personal Training').length!==1?'s':''}`} right={<Btn variant="primary" size="sm" onClick={()=>{setPlanForm({name:'',days:'',price:'',pt:'12 Sessions',type:'Personal Training'});setEditPlan(null);setShowPlanModal(true);}}>+ Create PT Plan</Btn>}/>
+            {plans.filter(p=>p.type==='Personal Training').length===0 && <div style={{textAlign:'center',padding:24,color:G.text3,fontSize:13}}>No PT plans yet. Create a personal training plan to start billing PT members.</div>}
+            <div style={s.col(8)}>
+              {plans.map((p,i)=>p.type!=='Personal Training'?null:(
+                <div key={p.name+i} className="plan-row" style={{background:'#fffbeb',border:`1.5px solid #fde68a`,borderRadius:9,padding:'12px 15px',display:'flex',alignItems:'center',gap:12}}>
+                  <div style={{width:10,height:10,borderRadius:'50%',background:'#d97706',flexShrink:0}}/>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:600,color:G.navy}}>{p.name} <Badge bright style={{background:'#fef3c7',color:'#92400e',borderColor:'#fde68a',fontSize:10,marginLeft:4}}>PT</Badge></div>
+                    <div style={{fontSize:11,color:G.text3}}>{p.days} days · {p.pt||'None'} sessions</div>
+                  </div>
+                  <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:14,fontWeight:700,color:'#d97706',marginRight:8}}>₹{(p.price||0).toLocaleString()}</span>
+                  <Btn variant="ghost" size="sm" onClick={()=>openEditPlan(p,i)}>✏️</Btn>
+                  <Btn variant="ghost" size="sm" style={{color:'#dc2626'}} onClick={()=>deletePlan(i)}>🗑️</Btn>
+                </div>
+              ))}
+            </div>
+          </div>
           <Modal open={showPlanModal} onClose={()=>setShowPlanModal(false)} title={editPlan!==null?'Edit Plan':'Create Plan'}>
-            <FG label="Plan Name"><Fi placeholder="e.g. Monthly, Quarterly, Yearly" value={planForm.name} onChange={e=>setPlanForm({...planForm,name:e.target.value})}/></FG>
+            <FG label="Plan Type"><Fs value={planForm.type} onChange={e=>setPlanForm({...planForm,type:e.target.value})}><option>Membership</option><option>Personal Training</option></Fs></FG>
+            <FG label="Plan Name"><Fi placeholder={planForm.type==='Personal Training'?'e.g. PT Monthly, PT Quarterly':'e.g. Monthly, Quarterly, Yearly'} value={planForm.name} onChange={e=>setPlanForm({...planForm,name:e.target.value})}/></FG>
             <div className="rg-2" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
               <FG label="Duration (days)"><Fi type="number" placeholder="30" value={planForm.days} onChange={e=>setPlanForm({...planForm,days:e.target.value})}/></FG>
-              <FG label="Price (₹)"><Fi type="number" placeholder="1500" value={planForm.price} onChange={e=>setPlanForm({...planForm,price:e.target.value})}/></FG>
+              <FG label="Price (₹)"><Fi type="number" placeholder={planForm.type==='Personal Training'?'3000':'1500'} value={planForm.price} onChange={e=>setPlanForm({...planForm,price:e.target.value})}/></FG>
             </div>
-            <FG label="PT Sessions"><Fs value={planForm.pt} onChange={e=>setPlanForm({...planForm,pt:e.target.value})}><option>None</option><option>4 Sessions</option><option>8 Sessions</option><option>12 Sessions</option><option>Unlimited</option></Fs></FG>
+            <FG label={planForm.type==='Personal Training'?'PT Sessions Included':'PT Sessions'}><Fs value={planForm.pt} onChange={e=>setPlanForm({...planForm,pt:e.target.value})}><option>None</option><option>4 Sessions</option><option>8 Sessions</option><option>12 Sessions</option><option>16 Sessions</option><option>24 Sessions</option><option>Unlimited</option></Fs></FG>
             {planForm.name && planForm.days && planForm.price && (
-              <div style={{...s.inset(12),background:G.bg3,border:`1px solid ${G.border2}`,marginTop:8}}>
-                <div style={{fontSize:11,color:G.text3,marginBottom:4}}>Preview</div>
+              <div style={{...s.inset(12),background:planForm.type==='Personal Training'?'#fffbeb':G.bg3,border:`1px solid ${planForm.type==='Personal Training'?'#fde68a':G.border2}`,marginTop:8}}>
+                <div style={{fontSize:11,color:G.text3,marginBottom:4}}>Preview {planForm.type==='Personal Training'&&<Badge bright style={{background:'#fef3c7',color:'#92400e',borderColor:'#fde68a',fontSize:9}}>PT</Badge>}</div>
                 <div style={{fontSize:14,fontWeight:700,color:G.navy}}>{planForm.name} — ₹{parseInt(planForm.price||0).toLocaleString()} / {planForm.days} days</div>
-                <div style={{fontSize:11,color:G.text3,marginTop:2}}>PT: {planForm.pt||'None'}</div>
+                <div style={{fontSize:11,color:G.text3,marginTop:2}}>Sessions: {planForm.pt||'None'} · Type: {planForm.type}</div>
               </div>
             )}
             <div style={{...s.flex(10),marginTop:14}}>

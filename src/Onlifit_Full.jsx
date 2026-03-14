@@ -1355,15 +1355,15 @@ function PageAttendance({ toast }) {
 
 // ─── MEMBERS PAGE ─────────────────────────────────────────────────────────────
 function PageMembers({ toast }) {
-  const { members, setMembers, gymUser, attendance, trainers, staff, plans } = useGym();
+  const { members, setMembers, gymUser, attendance, trainers, setTrainers, staff, plans } = useGym();
   const [filter,setFilter] = useState('all');
   const [showAdd,setShowAdd] = useState(false);
   const [showPortal,setShowPortal] = useState(null);
   const [showEdit,setShowEdit] = useState(null);
   const [showQR,setShowQR] = useState(null);
   const trainerNames = [...new Set([...trainers.map(t=>t.name), ...staff.filter(s=>s.role==='Trainer').map(s=>s.name)])].filter(Boolean);
-  const [form,setForm] = useState({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'',coupon:''});
-  const [editForm,setEditForm] = useState({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'',status:'Active'});
+  const [form,setForm] = useState({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'',coupon:'',wantPT:false});
+  const [editForm,setEditForm] = useState({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'',status:'Active',wantPT:false});
   const [saving,setSaving] = useState(false);
   const portalBase = `https://onlifit.vercel.app/member?gym=${gymUser.gym_id}`;
 
@@ -1391,8 +1391,11 @@ function PageMembers({ toast }) {
     const memberData = {name:form.name.trim(),phone:form.phone,email:form.email,dob:form.dob,plan:form.plan,trainer:form.trainer};
     const newMember = {name:memberData.name,init,id,phone:memberData.phone,email:memberData.email,plan:memberData.plan,start:startStr,expiry:expStr,status:'Active',trainer:memberData.trainer,visits:0,dob:memberData.dob};
     setMembers(prev=>[...prev,newMember]);
+    if(form.wantPT && form.trainer) {
+      setTrainers(prev=>prev.map(t=>t.name===form.trainer && !t.members.includes(newMember.id) ? {...t,members:[...t.members,newMember.id],revenue:t.revenue+(t.commission||0)} : t));
+    }
     setShowAdd(false);
-    setForm({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'',coupon:''});
+    setForm({name:'',phone:'',email:'',dob:'',plan:'Monthly',trainer:'',coupon:'',wantPT:false});
     toast(`Member added! Portal: ${portalBase}&member=${id}`);
     // Persist to Supabase via SECURITY DEFINER RPC (bypasses RLS)
     const { error } = await supabase.rpc('save_gym_member', {
@@ -1408,20 +1411,29 @@ function PageMembers({ toast }) {
 
   const openEdit = (m) => {
     setShowEdit(m);
-    setEditForm({name:m.name,phone:m.phone||'',email:m.email||'',dob:m.dob||'',plan:m.plan||'Monthly',trainer:m.trainer||'',status:m.status||'Active'});
+    setEditForm({name:m.name,phone:m.phone||'',email:m.email||'',dob:m.dob||'',plan:m.plan||'Monthly',trainer:m.trainer||'',status:m.status||'Active',wantPT:!!m.trainer});
   };
 
   const saveEditMember = async () => {
     if(!editForm.name.trim()){toast('Name is required');return;}
     setSaving(true);
-    const updated = {...showEdit,...editForm,init:editForm.name.trim().split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()};
+    const effTrainer = editForm.wantPT ? (editForm.trainer||'') : '';
+    const updated = {...showEdit,...editForm,trainer:effTrainer,init:editForm.name.trim().split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()};
     setMembers(prev=>prev.map(m=>m.id===showEdit.id?updated:m));
+    const oldTrainer = showEdit.trainer || '';
+    if(oldTrainer !== effTrainer) {
+      setTrainers(prev=>prev.map(t=>{
+        if(t.name===oldTrainer && t.members.includes(showEdit.id)) return {...t,members:t.members.filter(mid=>mid!==showEdit.id)};
+        if(t.name===effTrainer && !t.members.includes(showEdit.id)) return {...t,members:[...t.members,showEdit.id],revenue:t.revenue+(t.commission||0)};
+        return t;
+      }));
+    }
     setShowEdit(null);
     toast(`${editForm.name} updated ✓`);
     const { error } = await supabase.rpc('update_gym_member', {
       p_id: showEdit.id, p_name: editForm.name.trim(), p_initials: updated.init,
       p_phone: editForm.phone||'', p_email: editForm.email||'', p_dob: editForm.dob||'',
-      p_plan: editForm.plan, p_trainer: editForm.trainer||'', p_status: editForm.status,
+      p_plan: editForm.plan, p_trainer: effTrainer, p_status: editForm.status,
     });
     if (error) { console.error('[EditMember] RPC error:', JSON.stringify(error)); toast('⚠️ Supabase update failed: ' + (error.message||'unknown')); }
     else { console.log('[EditMember] ✅ Updated in Supabase:', showEdit.id); }
@@ -1497,7 +1509,8 @@ function PageMembers({ toast }) {
       <Modal open={showAdd} onClose={()=>setShowAdd(false)} title="Add New Member">
         <div className="rg-2"><FG label="Full Name *"><Fi placeholder="Full Name" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/></FG><FG label="Phone"><Fi placeholder="+91 XXXXX XXXXX" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})}/></FG></div>
         <div className="rg-2"><FG label="Email"><Fi placeholder="email@example.com" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></FG><FG label="Date of Birth"><Fi type="date" value={form.dob} onChange={e=>setForm({...form,dob:e.target.value})}/></FG></div>
-        <div className="rg-2"><FG label="Membership Plan"><Fs value={form.plan} onChange={e=>setForm({...form,plan:e.target.value})}>{plans.map(p=><option key={p.name} value={p.name}>{p.name}</option>)}</Fs></FG><FG label="Assign Trainer"><Fs value={form.trainer} onChange={e=>setForm({...form,trainer:e.target.value})}><option value="">-- None --</option>{trainerNames.map(t=><option key={t}>{t}</option>)}</Fs></FG></div>
+        <div className="rg-2"><FG label="Membership Plan"><Fs value={form.plan} onChange={e=>setForm({...form,plan:e.target.value})}>{plans.map(p=><option key={p.name} value={p.name}>{p.name}</option>)}</Fs></FG><FG label="Personal Training?"><div style={{display:'flex',alignItems:'center',gap:10}}><label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',fontSize:13,color:form.wantPT?G.accent:G.text2,fontWeight:form.wantPT?700:400}}><input type="checkbox" checked={form.wantPT} onChange={e=>{const v=e.target.checked;setForm(f=>({...f,wantPT:v,trainer:v?f.trainer:''}))}} style={{accentColor:G.accent,width:16,height:16}}/>{form.wantPT?'Yes — Assign Trainer':'No'}</label></div></FG></div>
+        {form.wantPT && <FG label="Assign PT Trainer"><Fs value={form.trainer} onChange={e=>setForm({...form,trainer:e.target.value})}><option value="">-- Select Trainer --</option>{trainerNames.map(t=><option key={t}>{t}</option>)}</Fs></FG>}
         <div style={{...s.inset(),...s.flex(12),marginBottom:12,background:G.bg3,border:`1px solid ${G.border2}`}}>
           <div style={{width:48,height:48,background:G.bg4,border:`1px solid ${G.accentL}`,borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,flexShrink:0}}>🆔</div>
           <div><div style={{fontSize:11,fontWeight:700,color:G.navy,marginBottom:2}}>Auto-Generated Member ID</div><div style={{...s.mono,fontSize:13,color:G.accent,fontWeight:700}}>IQ-KRM-{String(members.length+1).padStart(4,'0')}</div><div style={{fontSize:10,color:G.text3,marginTop:2}}>QR code + Portal access generated on save</div></div>
@@ -1539,7 +1552,8 @@ function PageMembers({ toast }) {
         {showEdit&&<div>
           <div className="rg-2"><FG label="Full Name *"><Fi value={editForm.name} onChange={e=>setEditForm({...editForm,name:e.target.value})}/></FG><FG label="Phone"><Fi value={editForm.phone} onChange={e=>setEditForm({...editForm,phone:e.target.value})}/></FG></div>
           <div className="rg-2"><FG label="Email"><Fi value={editForm.email} onChange={e=>setEditForm({...editForm,email:e.target.value})}/></FG><FG label="Date of Birth"><Fi type="date" value={editForm.dob} onChange={e=>setEditForm({...editForm,dob:e.target.value})}/></FG></div>
-          <div className="rg-2"><FG label="Membership Plan"><Fs value={editForm.plan} onChange={e=>setEditForm({...editForm,plan:e.target.value})}>{plans.map(p=><option key={p.name} value={p.name}>{p.name}</option>)}</Fs></FG><FG label="Assign Trainer"><Fi value={editForm.trainer} onChange={e=>setEditForm({...editForm,trainer:e.target.value})}/></FG></div>
+          <div className="rg-2"><FG label="Membership Plan"><Fs value={editForm.plan} onChange={e=>setEditForm({...editForm,plan:e.target.value})}>{plans.map(p=><option key={p.name} value={p.name}>{p.name}</option>)}</Fs></FG><FG label="Personal Training?"><div style={{display:'flex',alignItems:'center',gap:10}}><label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',fontSize:13,color:editForm.wantPT?G.accent:G.text2,fontWeight:editForm.wantPT?700:400}}><input type="checkbox" checked={editForm.wantPT} onChange={e=>{const v=e.target.checked;setEditForm(f=>({...f,wantPT:v,trainer:v?f.trainer:''}))}} style={{accentColor:G.accent,width:16,height:16}}/>{editForm.wantPT?'Yes — Assign Trainer':'No'}</label></div></FG></div>
+          {editForm.wantPT && <FG label="Assign PT Trainer"><Fs value={editForm.trainer} onChange={e=>setEditForm({...editForm,trainer:e.target.value})}><option value="">-- Select Trainer --</option>{trainerNames.map(t=><option key={t}>{t}</option>)}</Fs></FG>}
           <div className="rg-2"><FG label="Status"><Fs value={editForm.status} onChange={e=>setEditForm({...editForm,status:e.target.value})}><option>Active</option><option>Expired</option><option>Frozen</option></Fs></FG><FG label="Member ID"><Fi value={showEdit.id} disabled style={{opacity:.6}}/></FG></div>
           <MFooter onCancel={()=>setShowEdit(null)} onSave={saveEditMember} saveLabel="✓ Save Changes" saving={saving}/>
           <div style={{borderTop:`1px solid ${G.border}`,marginTop:12,paddingTop:12}}>
@@ -3094,11 +3108,13 @@ function PagePT({ toast }) {
 
   const SPECS = ['Strength & Conditioning','Weight Loss & Nutrition','Functional & Crossfit','Yoga & Flexibility','Bodybuilding','Sports Performance','Rehabilitation','Cardio & HIIT'];
 
+  const ptMembers = members.filter(m => m.trainer && m.status === 'Active');
+
   return (
     <div className="page-anim">
       <div className="rg-4" style={{marginBottom:16}}>
         <StatCard label="Active PT Trainers" value={String(trainers.length)} icon="🏋️"/>
-        <StatCard label="Total PT Members" value={String(totalPTMembers)} icon="👥"/>
+        <StatCard label="PT Active Members" value={String(ptMembers.length)} icon="👥"/>
         <StatCard label="Sessions This Month" value={String(totalSessions)} icon="📅"/>
         <StatCard label="PT Revenue (Month)" value={`₹${totalRevenue.toLocaleString('en-IN')}`} icon="💰"/>
       </div>
@@ -3136,6 +3152,33 @@ function PagePT({ toast }) {
 </table></div>
         </div>
       </div>
+
+      {/* PT Active Members */}
+      {ptMembers.length > 0 && (
+        <div style={{...s.card(),marginBottom:16}}>
+          <SH title="PT Active Members" sub={`${ptMembers.length} member${ptMembers.length!==1?'s':''} with personal training assigned`}/>
+          <div style={{overflowX:'auto'}}>
+            <div class="tbl-wrap"><table style={{width:'100%',borderCollapse:'collapse'}}>
+              <Th cols={['Member','ID','Plan','Assigned Trainer','PT Status','Expiry']}/>
+              <tbody>
+                {ptMembers.map(m=>{
+                  const tr = trainers.find(t=>t.name===m.trainer);
+                  return (
+                    <tr key={m.id} className="row-hover" style={{borderBottom:`1px solid ${G.border}`,transition:'.12s'}}>
+                      <td style={{padding:'11px 13px'}}><div style={s.flex(9)}><Mav init={m.init}/><div><div style={{fontSize:13,fontWeight:600,color:G.navy}}>{m.name}</div><div style={{fontSize:10,color:G.text3}}>{m.phone||'--'}</div></div></div></td>
+                      <td style={{padding:'11px 13px',...s.mono,fontSize:11,color:G.text3}}>{m.id}</td>
+                      <td style={{padding:'11px 13px'}}><Badge bright>{m.plan}</Badge></td>
+                      <td style={{padding:'11px 13px'}}><div style={s.flex(8)}>{tr&&<Mav init={tr.init} size={24}/>}<span style={{fontSize:12,fontWeight:600,color:G.navy}}>{m.trainer}</span></div></td>
+                      <td style={{padding:'11px 13px'}}><Badge bright style={{background:'#dcfce7',color:'#15803d'}}>Active PT</Badge></td>
+                      <td style={{padding:'11px 13px',fontSize:12,color:G.text2}}>{m.expiry}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+</table></div>
+          </div>
+        </div>
+      )}
 
       {/* AI tip */}
       <div style={{...s.inset(14),background:G.bg3,border:`1px solid ${G.border2}`,fontSize:13,color:G.text2}}>

@@ -745,16 +745,23 @@ function MemberPortal({ member: initialMember, onLogout }) {
               </div>
             </div>
 
-            {/* Trainer card */}
+            {/* Trainer card -- only shown if PT trainer assigned */}
+            {member.trainer ? (
             <div className="fade-up stagger-4" style={{ background:G.bg, border:`1px solid ${G.border}`, borderRadius:16, padding:18, marginTop:14, boxShadow:"0 1px 4px rgba(0,0,0,.05)", display:"flex", alignItems:"center", gap:14 }}>
               <div style={{ width:52, height:52, borderRadius:13, background:G.bg4, border:`2px solid ${G.accentL}`, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:800, fontSize:16, color:G.accent, flexShrink:0 }}>{member.trainerInit}</div>
               <div style={{ flex:1 }}>
-                <div style={{ fontSize:10, color:G.text3, fontWeight:600, textTransform:"uppercase", letterSpacing:"1px" }}>Your Trainer</div>
+                <div style={{ fontSize:10, color:G.text3, fontWeight:600, textTransform:"uppercase", letterSpacing:"1px" }}>Your Personal Trainer</div>
                 <div style={{ fontSize:15, fontWeight:700, color:G.navy, marginTop:2 }}>{member.trainer}</div>
-                <div style={{ fontSize:12, color:G.text2, marginTop:1 }}>{member.trainerSpec}</div>
+                <div style={{ fontSize:12, color:G.text2, marginTop:1 }}>{member.trainerSpec || 'Personal Training Active'}</div>
               </div>
               <button onClick={() => setBook(true)} style={{ background:G.bg3, border:`1.5px solid ${G.accentL}`, borderRadius:9, padding:"8px 14px", fontSize:12, fontWeight:700, color:G.accent, cursor:"pointer" }}>Book</button>
             </div>
+            ) : (
+            <div className="fade-up stagger-4" style={{ background:G.bg2, border:`1px dashed ${G.border}`, borderRadius:16, padding:18, marginTop:14, textAlign:"center" }}>
+              <div style={{ fontSize:13, color:G.text3, fontWeight:500 }}>🏋️ No personal trainer assigned</div>
+              <div style={{ fontSize:11, color:G.text3, marginTop:4 }}>Ask at reception to enroll for personal training</div>
+            </div>
+            )}
           </div>
         )}
 
@@ -975,7 +982,7 @@ function MemberPortal({ member: initialMember, onLogout }) {
                 {l:"Member ID", v:member.id},
                 {l:"Join Date", v:member.joinDate||'—'},
                 {l:"Branch", v:member.branch||'Main'},
-                {l:"Trainer", v:member.trainer||'Not assigned'},
+                {l:"Personal Trainer", v:member.trainer ? `${member.trainer} (Active PT)` : 'Not enrolled'},
                 {l:"Plan", v:`${member.plan} — Expires ${member.expiry||'—'}`},
                 {l:"Total Visits", v:member.totalVisits||0},
               ].map(item => (
@@ -1143,7 +1150,7 @@ function MemberPortal({ member: initialMember, onLogout }) {
       )}
 
       {/* ── BOOK TRAINER MODAL ── */}
-      {showBook && (
+      {showBook && member.trainer && (
         <div onClick={e=>{ if(e.target===e.currentTarget) setBook(false); }}
           style={{ position:"fixed", inset:0, background:"rgba(15,23,42,.5)", backdropFilter:"blur(6px)", zIndex:100, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
           <div className="slide-in" style={{ background:G.bg, borderRadius:"20px 20px 0 0", padding:24, width:"100%", maxWidth:640 }}>
